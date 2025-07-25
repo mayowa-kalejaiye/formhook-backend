@@ -7,7 +7,8 @@ from ..schemas.user import UserCreate, UserOut
 from ..models.user import User
 from ..core.database import SessionLocal
 from ..core.security import hash_password, verify_password, create_access_token
-from pydantic import EmailStr
+
+from pydantic import EmailStr, BaseModel
 
 router = APIRouter()
 
@@ -30,11 +31,17 @@ def signup(user: UserCreate, db: Session = Depends(get_db)):
     db.refresh(db_user)
     return db_user
 
+
+# Pydantic model for login request
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
 @router.post("/login")
-def login(email: EmailStr, password: str, db: Session = Depends(get_db)):
+def login(request: LoginRequest, db: Session = Depends(get_db)):
     """Authenticate user and return JWT."""
-    user = db.query(User).filter(User.email == email).first()
-    if not user or not verify_password(password, user.password_hash):
+    user = db.query(User).filter(User.email == request.email).first()
+    if not user or not verify_password(request.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     token = create_access_token({"sub": str(user.id), "email": user.email})
     return {"access_token": token, "token_type": "bearer"}
