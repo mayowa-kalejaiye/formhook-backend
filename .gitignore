@@ -21,7 +21,7 @@ ENV/
 .env.*
 
 # Alembic
-migrations/versions/
+# migrations/versions/
 
 # OS
 .DS_Store
