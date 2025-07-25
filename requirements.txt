@@ -10,3 +10,5 @@ jose
 sendgrid
 slowapi
 pydantic-settings
+email-validator
+pydantic[email]
