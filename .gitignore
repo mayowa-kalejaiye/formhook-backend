@@ -41,3 +41,4 @@ node_modules/
 build/
 dist/
 *.egg-info/
+.history/
