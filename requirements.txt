@@ -12,3 +12,4 @@ slowapi
 pydantic-settings
 email-validator
 pydantic[email]
+requests
