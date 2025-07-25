@@ -30,7 +30,7 @@ from io import StringIO
 router = APIRouter()
 
 # Import limiter from main app
-from ..main import limiter
+from ..extensions import limiter
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 

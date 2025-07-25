@@ -22,13 +22,12 @@ app.add_middleware(
 
 
 # Rate limiting middleware (SlowAPI)
-from slowapi import Limiter
-from slowapi.util import get_remote_address
+
+from .extensions import limiter
 from slowapi.errors import RateLimitExceeded
 from fastapi.responses import JSONResponse
 from fastapi.requests import Request
 
-limiter = Limiter(key_func=get_remote_address, default_limits=[settings.RATE_LIMIT])
 app.state.limiter = limiter
 
 @app.exception_handler(RateLimitExceeded)
@@ -38,7 +37,8 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
         content={"detail": "Rate limit exceeded. Please try again later."}
     )
 
-app.middleware("http")(limiter.middleware)
+from slowapi.middleware import SlowAPIMiddleware
+app.add_middleware(SlowAPIMiddleware)
 
 # Register routes
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])
