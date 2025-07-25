@@ -24,8 +24,9 @@ A plug-and-play backend service for HTML forms. Accept submissions from static s
 ## API Endpoints
 
 ### Auth
-#### Register
-`POST /auth/register`
+
+#### Signup
+`POST /auth/signup`
 **Payload:**
 ```json
 {
