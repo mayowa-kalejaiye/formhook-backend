@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+sqlalchemy
+alembic
+psycopg2-binary
+python-dotenv
+pydantic
+passlib[bcrypt]
+jose
+sendgrid
+slowapi
