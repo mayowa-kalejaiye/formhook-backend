@@ -6,7 +6,7 @@ psycopg2-binary
 python-dotenv
 pydantic
 passlib[bcrypt]
-jose
+python-jose
 sendgrid
 slowapi
 pydantic-settings
