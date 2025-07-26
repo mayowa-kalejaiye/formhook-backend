@@ -192,50 +192,60 @@
 - 401: Unauthorized
 
 
-### DELETE `/forms/{form_id}`
-  "detail": "Form deleted"
-}
+
+### GET `/forms/{form_id}/analytics`
+
+**Description:** Returns analytics for a form, grouped by day (or hour), for the past 30 days by default. Protected with JWT. Only returns data for forms owned by the authenticated user.
+
+**Headers:**
+
+- Authorization: Bearer <token>
+
+**Query Parameters:**
+
+- `date_from`: ISO 8601 datetime, optional (default: 30 days ago)
+- `date_to`: ISO 8601 datetime, optional (default: now)
+- `interval`: "day" (default) or "hour"
+
+**Response:**
+
+```json
+[
+  {
+    "date": "2025-07-20",
+    "submissions": 50,
+    "failed_webhooks": 3,
+    "emails_sent": 40,
+    "unique_ips": 10
+  },
+  ...
+]
 ```
+
+**Field meanings:**
+
+- `submissions`: Number of submissions for the form on that day/hour
+- `failed_webhooks`: Number of webhook events with status = "failed" for that form and day/hour
+- `emails_sent`: Number of successful notification emails sent for that form and day/hour (tracked in EmailLog)
+- `unique_ips`: Number of unique IP addresses that submitted to the form on that day/hour
+
 **Errors:**
-- 404: Form not found
+
+- 403: Not authorized to access this form
 - 401: Unauthorized
 
 ---
 
-## Submissions
+### Email Logging
 
-### POST `/forms/{form_id}/submit`
-**Description:** Public endpoint to submit form data. Rate limited (5/min per IP).
+Notification emails sent for form submissions are logged in the `EmailLog` table. Each log entry includes:
+- `form_id`: The form the email was sent for
+- `submission_id`: The submission that triggered the email (if any)
+- `to_email`: Recipient email address
+- `status`: "SENT" or "FAILED"
+- `created_at`: Timestamp of the email event
 
-**Request Body:**
-```
-{
-    "field1": "value1",               // any key-value pairs
-  }
-}
-```
-**Response:**
-```
-{
-  "id": 1,                             // integer
-  "form_id": "form-uuid",             // string (UUID)
-  "data": { ... },                      // submitted data
-  "ip_address": "127.0.0.1",          // string
-  "created_at": "2025-07-26T00:00:00.000000Z"
-}
-```
-**Errors:**
-- 404: Form not found
-- 429: Rate limit exceeded
-- 422: Validation error
-
----
-
-### GET `/forms/{form_id}/submissions`
-**Description:** Get submissions for a form (auth required, must own form) with pagination and filtering.
-
-**Headers:**
-- Authorization: Bearer <token>
+This enables accurate analytics for the `emails_sent` metric in the analytics endpoint.
 
 **Query Parameters:**
 - `limit`: int, default 20, max results
@@ -269,26 +279,34 @@
 **Headers:**
 - Authorization: Bearer <token>
 
+
 **Response:** CSV file download
+
 **Errors:**
+
 - 404: Form not found or no submissions
 - 401: Unauthorized
 
 ---
 
 ### POST `/forms/admin/retry-webhooks`
+
 **Description:** Manually retry all pending webhook deliveries (admin only).
 
 **Headers:**
+
 - Authorization: Bearer <token>
 
 **Response:**
-```
+
+```json
 {
   "detail": "Webhook retry task started."
 }
 ```
+
 **Errors:**
+
 - 401: Unauthorized
 
 ---

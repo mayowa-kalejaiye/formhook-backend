@@ -53,11 +53,14 @@ def submit(form_id: str, submission: SubmissionCreate, request: Request, db: Ses
     # Send notification email if set
     if form.notification_email:
         try:
-            send_email(
+            response = send_email(
                 to_email=form.notification_email,
                 subject=f"New submission for form '{form.name}'",
                 html_content=f"<p>You have a new submission for your form <b>{form.name}</b>.</p><pre>{submission.data}</pre>"
             )
+            # Log the email event
+            if hasattr(response, "log_email"):
+                response.log_email(db=db, form_id=str(form.id), submission_id=db_submission.id)
         except Exception as e:
             logging.error(f"Failed to send notification email: {e}")
 
