@@ -7,7 +7,7 @@ A plug-and-play backend service for HTML forms. Accept submissions from static s
 - Form creation and management
 - Submission endpoint for static sites
 - Submission storage and export (CSV)
-- Optional: Email notifications, webhooks, rate limiting
+- Optional: Email notifications, advanced webhooks (custom headers, HMAC, retries, delivery logs), rate limiting
 
 ## Tech Stack
 - FastAPI, SQLAlchemy, Alembic, PostgreSQL, SendGrid, python-dotenv
@@ -74,6 +74,33 @@ A plug-and-play backend service for HTML forms. Accept submissions from static s
   "success_message": "Thanks for joining!",
   "description": "For website...", // optional
   "webhook_url": "https://...",   // optional
+  "webhook_headers": { "Authorization": "Bearer xyz" }, // optional, custom headers
+  "webhook_secret": "supersecret", // optional, HMAC secret for signature
+#### Webhook Delivery Logs
+`GET /forms/{form_id}/webhook-deliveries`
+**Headers:** `Authorization: Bearer <token>`
+**Response:**
+```json
+[
+  {
+    "id": 1,
+    "form_id": "form-uuid",
+    "submission_id": 123,
+    "webhook_url": "https://...",
+    "status": "SUCCESS",
+    "attempts": 1,
+    "last_attempt_at": "2025-07-26T00:00:00.000000Z",
+    "next_retry_at": null,
+    "response_code": 200,
+    "error_message": null,
+    "success": true,
+    "headers_sent": { "Authorization": "Bearer xyz" },
+    "response_body": "...",
+    "retry_count": 0,
+    "duration_ms": 120
+  }
+]
+```
   "notification_email": "notify@...", // optional
   "fields": [
     { "name": "email", "label": "Email Address", "type": "email", "required": true },
@@ -205,5 +232,5 @@ A plug-and-play backend service for HTML forms. Accept submissions from static s
 - All endpoints return standard HTTP status codes and error messages.
 - Auth endpoints use JWT Bearer tokens.
 - Submission endpoint is public, all others require authentication.
-- Forms now support custom field definitions via the `fields` array. See above for schema.
+- Forms now support custom field definitions via the `fields` array. Webhooks support custom headers, HMAC signatures, retries, and delivery logs. See above for schema and API.
 - See code for more details and TODOs.

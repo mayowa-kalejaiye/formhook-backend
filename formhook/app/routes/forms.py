@@ -1,3 +1,14 @@
+from ..models.webhook_delivery import WebhookDelivery
+from ..schemas.webhook_delivery import WebhookDeliveryLogOut
+
+@router.get("/{form_id}/webhook-deliveries", response_model=List[WebhookDeliveryLogOut])
+def get_webhook_deliveries(form_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Get webhook delivery logs for a form (auth required, must own form)."""
+    form = db.query(Form).filter(Form.id == form_id, Form.user_id == current_user.id).first()
+    if not form:
+        raise HTTPException(status_code=404, detail="Form not found")
+    logs = db.query(WebhookDelivery).filter(WebhookDelivery.form_id == str(form_id)).order_by(WebhookDelivery.last_attempt_at.desc()).all()
+    return logs
 """
 Form management routes.
 """

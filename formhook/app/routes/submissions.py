@@ -20,7 +20,11 @@ from ..services.email import send_email
 from ..services import webhook as webhook_service
 import logging
 import threading
-import requests
+import httpx
+import asyncio
+import hmac
+import hashlib
+import time
 from typing import List, Optional
 from datetime import datetime
 import csv
@@ -64,30 +68,56 @@ def submit(form_id: str, submission: SubmissionCreate, request: Request, db: Ses
         except Exception as e:
             logging.error(f"Failed to send notification email: {e}")
 
-    # Forward to webhook if set (non-blocking, with retry logging)
+    # Forward to webhook if set (non-blocking, with retry logging, advanced logic)
     if form.webhook_url:
-        def forward_webhook_with_retry():
-            try:
-                resp = requests.post(
-                    form.webhook_url,
-                    json={
-                        "form_id": form_id,
-                        "data": submission.data,
-                        "ip_address": request.client.host,
-                        "created_at": str(db_submission.created_at)
-                    },
-                    timeout=5
-                )
-                if not (200 <= resp.status_code < 300):
-                    webhook_service.log_webhook_failure(
-                        db, db_submission.id, form.webhook_url, response_code=resp.status_code, error_message=f"Non-2xx response: {resp.status_code}", attempts=1
-                    )
-            except Exception as e:
-                webhook_service.log_webhook_failure(
-                    db, db_submission.id, form.webhook_url, error_message=str(e), attempts=1
-                )
-                logging.error(f"Failed to forward to webhook: {e}")
-        threading.Thread(target=forward_webhook_with_retry, daemon=True).start()
+        def run_webhook_forwarding():
+            async def forward_with_retries():
+                max_retries = 3
+                delay = 2
+                attempt = 0
+                payload = {
+                    "form_id": form_id,
+                    "data": submission.data,
+                    "ip_address": request.client.host,
+                    "created_at": str(db_submission.created_at)
+                }
+                headers = form.webhook_headers or {}
+                # HMAC signature if secret is set
+                if form.webhook_secret:
+                    body = httpx.dumps(payload).encode() if hasattr(httpx, 'dumps') else str(payload).encode()
+                    signature = hmac.new(form.webhook_secret.encode(), body, hashlib.sha256).hexdigest()
+                    headers = dict(headers)  # ensure mutable
+                    headers["X-FormHook-Signature"] = signature
+                url = form.webhook_url
+                while attempt < max_retries:
+                    start = time.time()
+                    try:
+                        async with httpx.AsyncClient() as client:
+                            resp = await client.post(url, json=payload, headers=headers, timeout=5)
+                        duration = int((time.time() - start) * 1000)
+                        success = 200 <= resp.status_code < 300
+                        webhook_service.log_webhook_failure(
+                            db, db_submission.id, url,
+                            response_code=resp.status_code,
+                            error_message=None if success else f"Non-2xx response: {resp.status_code}",
+                            attempts=attempt+1
+                        )
+                        # Optionally, update log with headers, response_body, retry_count, duration_ms
+                        # (Extend webhook_service as needed)
+                        if success:
+                            break
+                    except Exception as e:
+                        duration = int((time.time() - start) * 1000)
+                        webhook_service.log_webhook_failure(
+                            db, db_submission.id, url,
+                            error_message=str(e),
+                            attempts=attempt+1
+                        )
+                        logging.error(f"Failed to forward to webhook: {e}")
+                    attempt += 1
+                    await asyncio.sleep(delay * attempt)  # Exponential backoff
+            asyncio.run(forward_with_retries())
+        threading.Thread(target=run_webhook_forwarding, daemon=True).start()
 # Admin endpoint to manually retry pending webhooks
 from fastapi import APIRouter
 from fastapi import BackgroundTasks

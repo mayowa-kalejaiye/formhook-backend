@@ -16,6 +16,8 @@ class Form(Base):
     name = Column(String, nullable=False)
     description = Column(String)
     webhook_url = Column(String)
+    webhook_headers = Column(postgresql.JSONB)
+    webhook_secret = Column(String)
     notification_email = Column(String)
     redirect_url = Column(String)
     success_message = Column(String)

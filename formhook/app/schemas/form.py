@@ -13,10 +13,13 @@ class FormField(BaseModel):
     type: Literal["text", "email", "textarea", "checkbox", "select"]
     required: bool
 
+
 class FormBase(BaseModel):
     name: str
     description: Optional[str] = None
     webhook_url: Optional[AnyUrl] = None
+    webhook_headers: Optional[dict] = None
+    webhook_secret: Optional[str] = None
     notification_email: Optional[EmailStr] = None
     redirect_url: Optional[AnyUrl] = None
     success_message: Optional[str] = None
