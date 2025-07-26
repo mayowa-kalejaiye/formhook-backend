@@ -2,7 +2,7 @@
 Pydantic schemas for Form entity.
 """
 
-from pydantic import BaseModel, EmailStr, AnyUrl, Field, root_validator
+from pydantic import BaseModel, EmailStr, AnyUrl, Field, model_validator
 from typing import Optional, List, Literal
 from datetime import datetime
 import uuid
@@ -22,16 +22,16 @@ class FormBase(BaseModel):
     success_message: Optional[str] = None
     fields: List[FormField] = Field(default_factory=list)
 
-    @root_validator
-    def validate_fields(cls, values):
-        fields = values.get("fields")
+    @model_validator(mode="after")
+    def validate_fields(self):
+        fields = self.fields
         if fields is not None:
             if not isinstance(fields, list):
                 raise ValueError("fields must be a list of field definitions")
             for f in fields:
                 if not isinstance(f, FormField):
                     raise ValueError("Each field must be a FormField object")
-        return values
+        return self
 
 class FormCreate(FormBase):
     pass
@@ -42,4 +42,4 @@ class FormOut(FormBase):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
