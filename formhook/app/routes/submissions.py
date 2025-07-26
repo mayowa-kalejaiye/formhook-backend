@@ -10,8 +10,8 @@ from fastapi.responses import JSONResponse
 from fastapi.requests import Request as FastAPIRequest
 from ..core.config import settings
 from sqlalchemy.orm import Session
+
 from fastapi.security import OAuth2PasswordBearer
-from ..core.security import decode_access_token
 from ..models.user import User
 from ..schemas.submission import SubmissionCreate, SubmissionOut
 from ..models.submission import Submission
@@ -21,40 +21,18 @@ from ..services import webhook as webhook_service
 import logging
 import threading
 import requests
-from ..core.database import SessionLocal
 from typing import List, Optional
 from datetime import datetime
 import csv
 from io import StringIO
+from ..dependencies import get_db, get_current_user
 
 router = APIRouter()
 
 # Import limiter from main app
 from ..extensions import limiter
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
-# Dependency to get current user from JWT
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(lambda: SessionLocal())):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    payload = decode_access_token(token)
-    if payload is None or "sub" not in payload:
-        raise credentials_exception
-    user = db.query(User).filter(User.id == int(payload["sub"])).first()
-    if user is None:
-        raise credentials_exception
-    return user
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 @router.post("/{form_id}/submit", response_model=SubmissionOut)
 @limiter.limit("5/minute")  # Custom rate limit: 5 submissions per minute per IP
