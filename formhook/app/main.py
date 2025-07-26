@@ -7,7 +7,7 @@ It includes app setup, middleware, and route registration.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .core.config import settings
-from .routes import auth, forms, submissions
+from .routes import auth, forms, submissions, dashboard
 
 app = FastAPI(title="FormHook API", description="Plug-and-play backend for HTML forms.")
 
@@ -44,6 +44,7 @@ app.add_middleware(SlowAPIMiddleware)
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])
 app.include_router(forms.router, prefix="/forms", tags=["Forms"])
 app.include_router(submissions.router, prefix="/forms", tags=["Submissions"])
+app.include_router(dashboard.router, tags=["Dashboard"])
 
 # Root endpoint
 @app.get("/")

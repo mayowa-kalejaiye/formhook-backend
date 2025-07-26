@@ -1,6 +1,7 @@
 
 # FormHook API Documentation
 
+
 ## Authentication
 
 ### POST `/auth/signup`
@@ -41,9 +42,102 @@
   "token_type": "bearer"         // string
 }
 ```
+
 **Errors:**
 - 401: Invalid credentials
 - 422: Validation error
+
+---
+
+## API Tokens (Authenticated, Bearer JWT or API token required)
+
+### POST `/api-token/generate`
+**Description:** Generate a new API token for the authenticated user. Only one active token per user. Rate limited (1/min per user).
+
+**Headers:**
+- Authorization: Bearer <token>
+
+**Response:**
+```json
+{
+  "api_token": "<API_TOKEN>" // string, only returned once
+}
+```
+**Errors:**
+- 401: Unauthorized
+- 429: Rate limit exceeded (only one token generation per minute)
+
+**Notes:**
+- The API token is only shown once. Store it securely.
+- Generating a new token revokes any previous token.
+- The API token can be used as a Bearer token for all authenticated endpoints (in place of a JWT).
+
+---
+
+### DELETE `/api-token`
+**Description:** Revoke the current API token for the authenticated user.
+
+**Headers:**
+- Authorization: Bearer <token>
+
+**Response:**
+```json
+{
+  "detail": "API token revoked."
+}
+```
+**Errors:**
+- 401: Unauthorized
+
+---
+
+
+## Dashboard
+
+### GET `/dashboard/summary`
+**Description:** Returns a summary for the authenticated user's dashboard, including:
+- Total forms count
+- Total submissions count
+- Recent activity (last 5 submissions)
+- Trend data (submissions per day for the selected range)
+- Webhook stats (delivered, failed, pending)
+
+**Headers:**
+- Authorization: Bearer <token>
+
+**Query Parameters:**
+- `days`: int, optional (default 30) — Number of days for trend data
+
+**Response:**
+```json
+{
+  "total_forms": 3,
+  "total_submissions": 42,
+  "recent_submissions": [
+    {
+      "id": 123,
+      "form_id": "form-uuid",
+      "data": {"field1": "value1"},
+      "ip_address": "127.0.0.1",
+      "created_at": "2025-07-26T00:00:00.000000Z"
+    }
+    // ... up to 5 most recent submissions ...
+  ],
+  "trend": [
+    {"date": "2025-07-01", "count": 2},
+    {"date": "2025-07-02", "count": 0}
+    // ... one entry per day for the selected range ...
+  ],
+  "webhook_stats": {
+    "total": 10,
+    "delivered": 8,
+    "failed": 1,
+    "pending": 1
+  }
+}
+```
+**Errors:**
+- 401: Unauthorized
 
 ---
 
@@ -82,17 +176,10 @@
   "id": "form-uuid",
   "name": "Contact Form",
   "description": "For website...",
-  "webhook_url": "https://...",
-  "notification_email": "notify@...",
-  "created_at": "2025-07-26T00:00:00.000000Z"
-}
-```
 - 400: Invalid notification_email
 - 401: Unauthorized
-- 422: Validation error
 
 ---
-
 ### GET `/forms/{form_id}`
 **Description:** Get a form by ID (must belong to current user).
 
@@ -123,9 +210,7 @@
 **Request Body:**
 ```
 {
-  "data": {
     "field1": "value1",               // any key-value pairs
-    "field2": "value2"
   }
 }
 ```
