@@ -27,10 +27,7 @@
 
 ---
 
-### POST `/auth/login`
-**Description:** Authenticate a user and return a JWT access token.
 
-**Request Body:**
 ```
 {
   "email": "user@example.com",   // string, required, valid email
@@ -50,10 +47,7 @@
 
 ---
 
-## Forms (Authenticated, Bearer JWT required)
-
 ### GET `/forms/`
-**Description:** Get all forms for the current user.
 
 **Headers:**
 - Authorization: Bearer <token>
@@ -61,7 +55,6 @@
 **Response:**
 ```
 [
-  {
     "id": "form-uuid",                // string (UUID)
     "user_id": 1,                       // integer
     "name": "Contact Form",            // string
@@ -70,21 +63,14 @@
     "notification_email": "notify@...",// string or null
     "created_at": "2025-07-26T00:00:00.000000Z" // ISO datetime
   },
-  ...
-]
 ```
 
----
-
-### POST `/forms/`
 **Description:** Create a new form for the authenticated user.
-
 **Headers:**
 - Authorization: Bearer <token>
 
 **Request Body:**
 ```
-{
   "name": "Contact Form",              // string, required
   "description": "For website...",     // string, optional
   "webhook_url": "https://...",        // string, optional, valid URL
@@ -93,9 +79,7 @@
 ```
 **Response:**
 ```
-{
   "id": "form-uuid",
-  "user_id": 1,
   "name": "Contact Form",
   "description": "For website...",
   "webhook_url": "https://...",
@@ -103,7 +87,6 @@
   "created_at": "2025-07-26T00:00:00.000000Z"
 }
 ```
-**Errors:**
 - 400: Invalid notification_email
 - 401: Unauthorized
 - 422: Validation error
@@ -121,17 +104,8 @@
 - 404: Form not found
 - 401: Unauthorized
 
----
 
 ### DELETE `/forms/{form_id}`
-**Description:** Delete a form by ID (must belong to current user).
-
-**Headers:**
-- Authorization: Bearer <token>
-
-**Response:**
-```
-{
   "detail": "Form deleted"
 }
 ```
