@@ -62,26 +62,52 @@ A plug-and-play backend service for HTML forms. Accept submissions from static s
 ---
 
 ### Forms
+
 #### Create Form
 `POST /forms/`
 **Headers:** `Authorization: Bearer <token>`
 **Payload:**
 ```json
 {
-  "name": "Contact Form",
-  "notification_email": "notify@example.com",
-  "webhook_url": "https://webhook.site/your-url"
+  "name": "Newsletter Signup",
+  "redirect_url": "https://mysite.com/thanks",
+  "success_message": "Thanks for joining!",
+  "description": "For website...", // optional
+  "webhook_url": "https://...",   // optional
+  "notification_email": "notify@...", // optional
+  "fields": [
+    { "name": "email", "label": "Email Address", "type": "email", "required": true },
+    { "name": "name", "label": "Full Name", "type": "text", "required": false },
+    { "name": "message", "label": "Message", "type": "textarea", "required": false }
+  ]
 }
 ```
+**Field object:**
+- `name`: string (e.g. "email")
+- `label`: string (e.g. "Your Email")
+- `type`: string, one of: "text", "email", "textarea", "checkbox", "select"
+- `required`: boolean
+
 **Response:**
 ```json
 {
-  "id": "form_id",
-  "name": "Contact Form",
-  "notification_email": "notify@example.com",
-  "webhook_url": "https://webhook.site/your-url"
+  "id": "form-uuid",
+  "user_id": 1,
+  "name": "Newsletter Signup",
+  "redirect_url": "https://mysite.com/thanks",
+  "success_message": "Thanks for joining!",
+  "description": "For website...",
+  "webhook_url": "https://...",
+  "notification_email": "notify@...",
+  "fields": [
+    { "name": "email", "label": "Email Address", "type": "email", "required": true },
+    { "name": "name", "label": "Full Name", "type": "text", "required": false },
+    { "name": "message", "label": "Message", "type": "textarea", "required": false }
+  ],
+  "created_at": "2025-07-26T00:00:00.000000Z"
 }
 ```
+
 
 #### List Forms
 `GET /forms/`
@@ -90,10 +116,20 @@ A plug-and-play backend service for HTML forms. Accept submissions from static s
 ```json
 [
   {
-    "id": "form_id",
-    "name": "Contact Form",
-    "notification_email": "notify@example.com",
-    "webhook_url": "https://webhook.site/your-url"
+    "id": "form-uuid",
+    "user_id": 1,
+    "name": "Newsletter Signup",
+    "redirect_url": "https://mysite.com/thanks",
+    "success_message": "Thanks for joining!",
+    "description": "For website...",
+    "webhook_url": "https://...",
+    "notification_email": "notify@...",
+    "fields": [
+      { "name": "email", "label": "Email Address", "type": "email", "required": true },
+      { "name": "name", "label": "Full Name", "type": "text", "required": false },
+      { "name": "message", "label": "Message", "type": "textarea", "required": false }
+    ],
+    "created_at": "2025-07-26T00:00:00.000000Z"
   }
 ]
 ```
@@ -164,8 +200,10 @@ A plug-and-play backend service for HTML forms. Accept submissions from static s
 
 ---
 
+
 ## Notes
 - All endpoints return standard HTTP status codes and error messages.
 - Auth endpoints use JWT Bearer tokens.
 - Submission endpoint is public, all others require authentication.
+- Forms now support custom field definitions via the `fields` array. See above for schema.
 - See code for more details and TODOs.
