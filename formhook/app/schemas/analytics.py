@@ -11,5 +11,7 @@ class FormAnalyticsEntry(BaseModel):
     emails_sent: int
     unique_ips: int
 
-class FormAnalyticsResponse(BaseModel):
-    __root__: List[FormAnalyticsEntry]
+from pydantic import RootModel
+
+class FormAnalyticsResponse(RootModel[List[FormAnalyticsEntry]]):
+    pass
