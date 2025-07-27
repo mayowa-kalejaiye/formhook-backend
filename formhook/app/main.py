@@ -47,8 +47,15 @@ app.include_router(submissions.router, prefix="/forms", tags=["Submissions"])
 app.include_router(dashboard.router, tags=["Dashboard"])
 app.include_router(analytics.router, tags=["Forms"])
 
+
 # Root endpoint
 @app.get("/")
 def read_root():
-    """Health check endpoint."""
+    """Root endpoint."""
     return {"message": "Welcome to FormHook!"}
+
+# Health check endpoint for deployment
+@app.get("/health")
+def health_check():
+    """Health check endpoint for deployment platforms."""
+    return {"status": "ok"}
