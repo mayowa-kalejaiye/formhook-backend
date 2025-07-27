@@ -10,4 +10,4 @@ jobs:
     steps:
       - name: Curl ping to Render health endpoint
         run: |
-          curl --fail --silent --show-error https://<your-app-name>.onrender.com/health || exit 1
+          curl --fail --silent --show-error https://formhook-backend.onrender.com/health || exit 1
