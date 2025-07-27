@@ -23,3 +23,5 @@ class Form(Base):
     success_message = Column(String)
     fields = Column(postgresql.JSONB)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    api_token = Column(String, nullable=True, unique=True, index=True, doc="Hashed API token for form submissions.")
+    require_token = Column(Integer, default=0, nullable=False, doc="Require API token for submissions (0=False, 1=True)")

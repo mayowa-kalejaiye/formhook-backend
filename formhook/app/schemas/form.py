@@ -40,9 +40,19 @@ class FormCreate(FormBase):
     pass
 
 class FormOut(FormBase):
+
     id: uuid.UUID
     user_id: int
     created_at: datetime
+    api_token: Optional[str] = Field(
+        default=None,
+        description="Hashed API token for form submissions. Only returned on generation.",
+        exclude=True
+    )
+    require_token: bool = Field(
+        default=False,
+        description="If true, submissions require a valid API token in the Authorization header."
+    )
 
     class Config:
         from_attributes = True

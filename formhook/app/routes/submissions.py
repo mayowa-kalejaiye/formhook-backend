@@ -41,11 +41,25 @@ from ..extensions import limiter
 @router.post("/{form_id}/submit", response_model=SubmissionOut)
 @limiter.limit("5/minute")  # Custom rate limit: 5 submissions per minute per IP
 def submit(form_id: str, submission: SubmissionCreate, request: Request, db: Session = Depends(get_db)):
-    """Public endpoint to submit form data. Limited to 5 submissions per minute per IP. Sends notification if set."""
+    """Public endpoint to submit form data. Limited to 5 submissions per minute per IP. Sends notification if set.
+    If form.require_token is True, requires Authorization: Bearer <token> header matching the stored token.
+    """
     form = db.query(Form).filter(Form.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
-    # TODO: Validate payload fields, webhook
+
+    # --- API Token validation ---
+    if getattr(form, "require_token", 0):
+        auth_header = request.headers.get("authorization")
+        if not auth_header or not auth_header.lower().startswith("bearer "):
+            log_failed_token_attempt(db, form_id, request.client.host, reason="Missing or invalid Authorization header")
+            raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+        token = auth_header.split(" ", 1)[1].strip()
+        from ..core.security import verify_password
+        if not form.api_token or not verify_password(token, form.api_token):
+            log_failed_token_attempt(db, form_id, request.client.host, reason="Invalid token")
+            raise HTTPException(status_code=401, detail="Invalid API token")
+
     db_submission = Submission(
         form_id=form_id,
         data=submission.data,
@@ -118,6 +132,14 @@ def submit(form_id: str, submission: SubmissionCreate, request: Request, db: Ses
                     await asyncio.sleep(delay * attempt)  # Exponential backoff
             asyncio.run(forward_with_retries())
         threading.Thread(target=run_webhook_forwarding, daemon=True).start()
+
+
+# --- Helper: Log failed token attempts ---
+def log_failed_token_attempt(db, form_id, ip, reason):
+    from datetime import datetime
+    logging.warning(f"Failed token attempt: form_id={form_id}, ip={ip}, reason={reason}")
+    # Optionally, store in a DB table for audit (not implemented here)
+    # Example: db.add(FailedTokenAttempt(...)); db.commit()
 # Admin endpoint to manually retry pending webhooks
 from fastapi import APIRouter
 from fastapi import BackgroundTasks

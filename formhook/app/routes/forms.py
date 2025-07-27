@@ -1,46 +1,22 @@
-"""
-Form management routes.
-"""
-from fastapi import APIRouter, Depends, HTTPException, status
-
+from fastapi import APIRouter, Depends, HTTPException, status, Response
 from fastapi.security import OAuth2PasswordBearer
-from ..models.user import User
 from sqlalchemy.orm import Session
-from ..schemas.form import FormCreate, FormOut
-from typing import List
-from ..dependencies import get_db, get_current_user
-from ..models.webhook_delivery import WebhookDelivery
-from ..schemas.webhook_delivery import WebhookDeliveryLogOut
-
-router = APIRouter()
-
-# ...existing code...
-
-@router.get("/{form_id}/webhook-deliveries", response_model=List[WebhookDeliveryLogOut])
-def get_webhook_deliveries(form_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """Get webhook delivery logs for a form (auth required, must own form)."""
-    form = db.query(Form).filter(Form.id == form_id, Form.user_id == current_user.id).first()
-    if not form:
-        raise HTTPException(status_code=404, detail="Form not found")
-    logs = db.query(WebhookDelivery).filter(WebhookDelivery.form_id == str(form_id)).order_by(WebhookDelivery.last_attempt_at.desc()).all()
-    return logs
-"""
-Form management routes.
-"""
-from fastapi import APIRouter, Depends, HTTPException, status
-
-from fastapi.security import OAuth2PasswordBearer
-from ..models.user import User
-from sqlalchemy.orm import Session
-from ..schemas.form import FormCreate, FormOut
 from pydantic import EmailStr, ValidationError
-from ..models.form import Form
 from typing import List
-from ..dependencies import get_db, get_current_user
 
+from ..dependencies import get_db, get_current_user
+from ..models.user import User
+from ..models.form import Form
+from ..models.webhook_delivery import WebhookDelivery
+from ..schemas.form import FormCreate, FormOut
+from ..schemas.webhook_delivery import WebhookDeliveryLogOut
+from ..core.security import generate_api_token, hash_api_token
 
 router = APIRouter()
 
+"""
+Form management routes.
+"""
 
 @router.get("/", response_model=List[FormOut])
 def get_forms(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -96,3 +72,35 @@ def delete_form(form_id: str, db: Session = Depends(get_db), current_user: User 
     db.delete(form)
     db.commit()
     return {"detail": "Form deleted"}
+
+# --- API Token Management Endpoints ---
+
+@router.post("/{form_id}/generate-token", status_code=200, tags=["Forms"], summary="Generate API token for a form", description="Generate a unique API token for a form. Only the form owner can call this. The token is returned once and stored hashed. Overwrites any existing token.")
+def generate_form_token(form_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    form = db.query(Form).filter(Form.id == form_id, Form.user_id == current_user.id).first()
+    if not form:
+        raise HTTPException(status_code=404, detail="Form not found or not authorized")
+    token = generate_api_token()
+    form.api_token = hash_api_token(token)
+    form.require_token = 1
+    db.commit()
+    return {"token": token, "message": "Store this token securely. It will not be shown again."}
+
+@router.delete("/{form_id}/revoke-token", status_code=204, tags=["Forms"], summary="Revoke API token for a form", description="Revoke the API token for a form. Only the form owner can call this. After revocation, submissions will not require a token unless a new one is generated.")
+def revoke_form_token(form_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    form = db.query(Form).filter(Form.id == form_id, Form.user_id == current_user.id).first()
+    if not form:
+        raise HTTPException(status_code=404, detail="Form not found or not authorized")
+    form.api_token = None
+    form.require_token = 0
+    db.commit()
+    return Response(status_code=204)
+
+@router.get("/{form_id}/webhook-deliveries", response_model=List[WebhookDeliveryLogOut])
+def get_webhook_deliveries(form_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Get webhook delivery logs for a form (auth required, must own form)."""
+    form = db.query(Form).filter(Form.id == form_id, Form.user_id == current_user.id).first()
+    if not form:
+        raise HTTPException(status_code=404, detail="Form not found")
+    logs = db.query(WebhookDelivery).filter(WebhookDelivery.form_id == str(form_id)).order_by(WebhookDelivery.last_attempt_at.desc()).all()
+    return logs

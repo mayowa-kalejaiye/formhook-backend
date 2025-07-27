@@ -1,3 +1,14 @@
+import secrets
+
+# JWT utilities
+
+def generate_api_token() -> str:
+    """Generate a secure random API token (UUID4-like, 32+ chars)."""
+    return secrets.token_urlsafe(32)
+
+def hash_api_token(token: str) -> str:
+    """Hash API token for storage (bcrypt)."""
+    return pwd_context.hash(token)
 """
 Security utilities for password hashing and JWT handling.
 """
