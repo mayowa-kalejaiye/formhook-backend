@@ -92,52 +92,44 @@
 ---
 
 
-## Dashboard
+
+## Dashboard & Analytics
 
 ### GET `/dashboard/summary`
-**Description:** Returns a summary for the authenticated user's dashboard, including:
+Returns a summary for the authenticated user's dashboard, including:
 - Total forms count
 - Total submissions count
 - Recent activity (last 5 submissions)
 - Trend data (submissions per day for the selected range)
 - Webhook stats (delivered, failed, pending)
 
-**Headers:**
-- Authorization: Bearer <token>
+### GET `/forms/{form_id}/analytics`
+Returns analytics for a form, grouped by day (or hour), for the past 30 days by default. Includes:
+- Submissions per interval
+- Failed webhooks per interval
+- Emails sent per interval
+- Unique IPs per interval
 
-**Query Parameters:**
-- `days`: int, optional (default 30) — Number of days for trend data
-
-**Response:**
+### GET `/forms/{form_id}/geo-analytics`
+Returns breakdown of submissions by country, region, and city, with date filtering. Example response:
 ```json
 {
-  "total_forms": 3,
-  "total_submissions": 42,
-  "recent_submissions": [
-    {
-      "id": 123,
-      "form_id": "form-uuid",
-      "data": {"field1": "value1"},
-      "ip_address": "127.0.0.1",
-      "created_at": "2025-07-26T00:00:00.000000Z"
-    }
-    // ... up to 5 most recent submissions ...
+  "country_stats": [
+    {"name": "Nigeria", "count": 12},
+    {"name": "United States", "count": 5}
   ],
-  "trend": [
-    {"date": "2025-07-01", "count": 2},
-    {"date": "2025-07-02", "count": 0}
-    // ... one entry per day for the selected range ...
+  "region_stats": [
+    {"name": "Lagos", "count": 10},
+    {"name": "California", "count": 3}
   ],
-  "webhook_stats": {
-    "total": 10,
-    "delivered": 8,
-    "failed": 1,
-    "pending": 1
-  }
+  "city_stats": [
+    {"name": "Yaba", "count": 7},
+    {"name": "San Francisco", "count": 2}
+  ]
 }
 ```
-**Errors:**
-- 401: Unauthorized
+
+All analytics endpoints require authentication and only return data for forms owned by the authenticated user.
 
 ---
 
@@ -311,11 +303,15 @@ This enables accurate analytics for the `emails_sent` metric in the analytics en
 
 ---
 
+
 ## Additional Notes
 - All endpoints expect and return JSON unless otherwise noted.
-- Authenticated endpoints require a Bearer JWT token in the `Authorization` header.
+- Authenticated endpoints require a Bearer JWT token or API token in the `Authorization` header.
 - On error, a JSON error message is returned with an appropriate HTTP status code.
-- The JWT token can be used for authenticated requests to protected endpoints.
+- The JWT token or API token can be used for authenticated requests to protected endpoints.
 - `/forms/{form_id}/submit` is rate limited to 5 requests per minute per IP.
 - If a form has a `notification_email`, an email is sent on each submission.
 - If a form has a `webhook_url`, submissions are forwarded to that URL (with retry logic).
+- Submissions can be enriched with geolocation data (country, region, city, latitude, longitude) if enabled per form.
+- Analytics endpoints provide breakdowns by country, region, city, and time interval.
+- Abuse/threat monitoring flags rapid submissions and datacenter IPs, storing a threat score per submission.

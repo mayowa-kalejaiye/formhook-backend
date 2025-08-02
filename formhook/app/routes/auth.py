@@ -24,7 +24,10 @@ def get_db():
 @router.post("/signup", response_model=UserOut)
 def signup(user: UserCreate, db: Session = Depends(get_db)):
     """Register a new user."""
-    # TODO: Add email uniqueness check
+    # Check if email already exists
+    existing_user = db.query(User).filter(User.email == user.email).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
     db_user = User(email=user.email, password_hash=hash_password(user.password))
     db.add(db_user)
     db.commit()

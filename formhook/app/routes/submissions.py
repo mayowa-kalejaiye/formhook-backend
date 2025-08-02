@@ -60,14 +60,57 @@ def submit(form_id: str, submission: SubmissionCreate, request: Request, db: Ses
             log_failed_token_attempt(db, form_id, request.client.host, reason="Invalid token")
             raise HTTPException(status_code=401, detail="Invalid API token")
 
+    from ..services.geo import extract_client_ip, get_geolocation
+    ip_address = extract_client_ip(request)
+    geo_data = None
+    country = region = city = location_source = latitude = longitude = None
+    if getattr(form, "track_location", 0):
+        geo_data = get_geolocation(ip_address)
+        if geo_data:
+            country = geo_data.get('country')
+            region = geo_data.get('region')
+            city = geo_data.get('city')
+            location_source = geo_data.get('location_source')
+            latitude = geo_data.get('latitude')
+            longitude = geo_data.get('longitude')
+    # --- Abuse/Threat Monitoring ---
+    risk_flags = []
+    # 1. Rapid submissions from same IP (last 10 min)
+    recent_count = db.query(Submission).filter(
+        Submission.form_id == form_id,
+        Submission.ip_address == ip_address,
+        Submission.created_at >= datetime.utcnow() - timedelta(minutes=10)
+    ).count()
+    if recent_count > 5:
+        risk_flags.append("rapid_submissions")
+    # 2. Datacenter IP detection (simple: org contains 'Google', 'Amazon', 'Microsoft', etc.)
+    if geo_data and geo_data.get('org'):
+        org = geo_data['org'].lower()
+        if any(dc in org for dc in ['google', 'amazon', 'microsoft', 'digitalocean', 'ovh', 'linode', 'hetzner']):
+            risk_flags.append("datacenter_ip")
+    # 3. Country mismatch (if you want to compare to user profile or previous submissions)
+    # Example: if form.user_id has a profile country, compare here
+    # 4. Add risk flags to webhook logs (extend as needed)
     db_submission = Submission(
         form_id=form_id,
         data=submission.data,
-        ip_address=request.client.host
+        ip_address=ip_address,
+        country=country,
+        region=region,
+        city=city,
+        location_source=location_source,
+        latitude=latitude,
+        longitude=longitude,
+        threat_score=len(risk_flags) if risk_flags else None
     )
-    db.add(db_submission)
-    db.commit()
-    db.refresh(db_submission)
+    try:
+        db.add(db_submission)
+        db.commit()
+        db.refresh(db_submission)
+    except Exception as db_exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to save submission. Please try again.")
+
     # Send notification email if set
     if form.notification_email:
         try:
@@ -81,6 +124,7 @@ def submit(form_id: str, submission: SubmissionCreate, request: Request, db: Ses
                 response.log_email(db=db, form_id=str(form.id), submission_id=db_submission.id)
         except Exception as e:
             logging.error(f"Failed to send notification email: {e}")
+            raise HTTPException(status_code=500, detail="Failed to send notification email.")
 
     # Forward to webhook if set (non-blocking, with retry logging, advanced logic)
     if form.webhook_url:

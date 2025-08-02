@@ -49,9 +49,13 @@ def create_form(form: FormCreate, db: Session = Depends(get_db), current_user: U
         fields=[f.dict() for f in form.fields],
         user_id=current_user.id
     )
-    db.add(db_form)
-    db.commit()
-    db.refresh(db_form)
+    try:
+        db.add(db_form)
+        db.commit()
+        db.refresh(db_form)
+    except Exception as db_exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to create form. Please try again.")
     return db_form
 
 

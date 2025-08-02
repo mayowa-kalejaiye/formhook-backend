@@ -1,3 +1,13 @@
+from pydantic import BaseModel
+
+class GeoStat(BaseModel):
+    name: str
+    count: int
+
+class GeoAnalyticsResponse(BaseModel):
+    country_stats: list[dict]
+    region_stats: list[dict]
+    city_stats: list[dict]
 """
 Pydantic schema for analytics response.
 """

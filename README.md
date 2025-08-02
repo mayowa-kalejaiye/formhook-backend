@@ -7,21 +7,28 @@ A plug-and-play backend service for HTML forms. Accept submissions from static s
 - Form creation and management
 - Submission endpoint for static sites
 - Submission storage and export (CSV)
-- Optional: Email notifications, advanced webhooks (custom headers, HMAC, retries, delivery logs), rate limiting
+- Email notifications (optional, per form)
+- Advanced webhooks (custom headers, HMAC, retries, delivery logs)
+- Rate limiting (5 submissions/minute per IP)
+- Geolocation enrichment: submissions include country, region, city, latitude, longitude (if enabled per form)
+- Submission analytics: breakdown by country, region, city, and time interval
+- Abuse/threat monitoring: flags rapid submissions from same IP, datacenter IPs, and stores threat score
 
 ## Tech Stack
-- FastAPI, SQLAlchemy, Alembic, PostgreSQL, SendGrid, python-dotenv
+- FastAPI, SQLAlchemy, Alembic, PostgreSQL, python-dotenv
+- Email: Resend API (or SendGrid)
+- Geolocation: ipinfo.io (can be extended)
 
 ## Quickstart
 1. Clone repo
-2. Set up `.env`
+2. Set up `.env` with your database and email API keys
 3. Install dependencies: `pip install -r requirements.txt`
 4. Run migrations: `alembic upgrade head`
 5. Start dev server: `uvicorn formhook.app.main:app --reload`
 
 ---
 
-## API Endpoints
+## API Endpoints (MVP)
 
 ### Auth
 
@@ -187,6 +194,13 @@ A plug-and-play backend service for HTML forms. Accept submissions from static s
     "message": "Hello!"
   },
   "ip_address": "127.0.0.1",
+  "country": "Nigeria",
+  "region": "Lagos",
+  "city": "Yaba",
+  "location_source": "ipinfo.io",
+  "latitude": "6.5244",
+  "longitude": "3.3792",
+  "threat_score": 0,
   "created_at": "2025-07-25T12:34:56"
 }
 ```
@@ -202,6 +216,13 @@ A plug-and-play backend service for HTML forms. Accept submissions from static s
     "form_id": "form_id",
     "data": { ... },
     "ip_address": "127.0.0.1",
+    "country": "Nigeria",
+    "region": "Lagos",
+    "city": "Yaba",
+    "location_source": "ipinfo.io",
+    "latitude": "6.5244",
+    "longitude": "3.3792",
+    "threat_score": 0,
     "created_at": "2025-07-25T12:34:56"
   }
 ]
@@ -210,7 +231,7 @@ A plug-and-play backend service for HTML forms. Accept submissions from static s
 #### Export Submissions (CSV)
 `GET /forms/{form_id}/submissions/export`
 **Headers:** `Authorization: Bearer <token>`
-**Response:** CSV file download
+**Response:** CSV file download (includes geolocation fields)
 
 ---
 
@@ -230,7 +251,11 @@ A plug-and-play backend service for HTML forms. Accept submissions from static s
 
 ## Notes
 - All endpoints return standard HTTP status codes and error messages.
-- Auth endpoints use JWT Bearer tokens.
+- Auth endpoints use JWT Bearer tokens or API tokens.
 - Submission endpoint is public, all others require authentication.
-- Forms now support custom field definitions via the `fields` array. Webhooks support custom headers, HMAC signatures, retries, and delivery logs. See above for schema and API.
+- Forms support custom field definitions via the `fields` array.
+- Webhooks support custom headers, HMAC signatures, retries, and delivery logs.
+- Submissions can be enriched with geolocation data if enabled per form.
+- Analytics endpoints provide breakdowns by country, region, city, and time interval.
+- Abuse/threat monitoring flags rapid submissions and datacenter IPs, storing a threat score per submission.
 - See code for more details and TODOs.
