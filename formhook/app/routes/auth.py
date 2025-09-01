@@ -1,7 +1,7 @@
 """
 Auth routes: signup, login, and email verification.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Form
 from sqlalchemy.orm import Session
 from ..schemas.user import UserCreate, UserOut
 from ..models.user import User
@@ -9,9 +9,8 @@ from ..core.database import SessionLocal
 from ..core.security import hash_password, verify_password, create_access_token
 from ..schemas.verification import EmailVerificationRequest, EmailVerificationResponse, TokenVerification
 from ..services.verification import verify_email, send_verification_email
-import os
-
 from pydantic import EmailStr, BaseModel
+import os
 
 router = APIRouter()
 
@@ -25,21 +24,42 @@ def get_db():
         db.close()
 
 @router.post("/signup", response_model=UserOut)
-def signup(user: UserCreate, request: Request, db: Session = Depends(get_db)):
-    """Register a new user and send verification email."""
+async def signup(
+    email: str = Form(None),
+    password: str = Form(None),
+    user_json: UserCreate = None,
+    request: Request = None, 
+    db: Session = Depends(get_db)
+):
+    """Register a new user and send verification email. Accepts both form data and JSON."""
     try:
+        # Handle both form data and JSON
+        if email and password:
+            # Form data was used
+            user_email = email
+            user_password = password
+        elif user_json:
+            # JSON was used
+            user_email = user_json.email
+            user_password = user_json.password
+        else:
+            raise HTTPException(
+                status_code=422, 
+                detail="Invalid request format. Provide email and password either as form data or in JSON body."
+            )
+        
         # Check if email already exists
-        existing_user = db.query(User).filter(User.email == user.email).first()
+        existing_user = db.query(User).filter(User.email == user_email).first()
         if existing_user:
             raise HTTPException(status_code=400, detail="Email already registered")
         
         # Create user
-        db_user = User(email=user.email, password_hash=hash_password(user.password))
+        db_user = User(email=user_email, password_hash=hash_password(user_password))
         db.add(db_user)
         db.commit()
         db.refresh(db_user)
         
-        # Send verification email (no need to pass base_url anymore)
+        # Send verification email
         try:
             send_verification_email(db, db_user)
         except Exception as e:
@@ -59,52 +79,83 @@ def signup(user: UserCreate, request: Request, db: Session = Depends(get_db)):
 
 # Pydantic model for login request
 class LoginRequest(BaseModel):
-    username: EmailStr  # Changed from email to username to match OAuth2 standard
+    email: str  # Changed to match the React form field name
     password: str
 
 @router.post("/login")
-def login(request: LoginRequest, db: Session = Depends(get_db)):
-    """Authenticate user and return JWT."""
-    # We search by email even though the field is called username in the request
-    user = db.query(User).filter(User.email == request.username).first()
-    if not user or not verify_password(request.password, user.password_hash):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-    
-    # Check if email is verified
-    if not user.is_verified:
-        # For debugging, let's temporarily bypass this
-        # raise HTTPException(
-        #     status_code=401,
-        #     detail="Email not verified. Please check your inbox for a verification link."
-        # )
-        pass
-    
-    token = create_access_token({"sub": str(user.id), "email": user.email})
-    return {"access_token": token, "token_type": "bearer"}
+async def login(
+    email: str = Form(None), 
+    password: str = Form(None),
+    request_body: LoginRequest = None,
+    db: Session = Depends(get_db)
+):
+    """Authenticate user and return JWT. Accepts both form data and JSON."""
+    try:
+        # Handle both form data and JSON
+        if email and password:
+            # Form data was used
+            pass
+        elif request_body:
+            # JSON was used
+            email = request_body.email
+            password = request_body.password
+        else:
+            raise HTTPException(
+                status_code=422, 
+                detail="Invalid request format. Provide email and password either as form data or in JSON body."
+            )
+        
+        print(f"Login attempt for email: {email}")
+        
+        # Find the user
+        user = db.query(User).filter(User.email == email).first()
+        if not user or not verify_password(password, user.password_hash):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        
+        # Check if email is verified - temporarily bypassed
+        if not user.is_verified:
+            # For debugging, let's temporarily bypass this
+            # raise HTTPException(
+            #     status_code=401,
+            #     detail="Email not verified. Please check your inbox for a verification link."
+            # )
+            pass
+        
+        token = create_access_token({"sub": str(user.id), "email": user.email})
+        return {"access_token": token, "token_type": "bearer"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Login error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Login error: {str(e)}")
 
 # Alternative login endpoint for email field name
 class EmailLoginRequest(BaseModel):
-    email: EmailStr
+    email: str  # Changed from EmailStr to str for more flexibility
     password: str
 
 @router.post("/email-login")
 def email_login(request: EmailLoginRequest, db: Session = Depends(get_db)):
     """Alternative login endpoint accepting 'email' instead of 'username'."""
-    user = db.query(User).filter(User.email == request.email).first()
-    if not user or not verify_password(request.password, user.password_hash):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-    
-    # Check if email is verified
-    if not user.is_verified:
-        # For debugging, let's temporarily bypass this
-        # raise HTTPException(
-        #     status_code=401,
-        #     detail="Email not verified. Please check your inbox for a verification link."
-        # )
-        pass
-    
-    token = create_access_token({"sub": str(user.id), "email": user.email})
-    return {"access_token": token, "token_type": "bearer"}
+    try:
+        user = db.query(User).filter(User.email == request.email).first()
+        if not user or not verify_password(request.password, user.password_hash):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        
+        # Check if email is verified
+        if not user.is_verified:
+            # For debugging, let's temporarily bypass this
+            # raise HTTPException(
+            #     status_code=401,
+            #     detail="Email not verified. Please check your inbox for a verification link."
+            # )
+            pass
+        
+        token = create_access_token({"sub": str(user.id), "email": user.email})
+        return {"access_token": token, "token_type": "bearer"}
+    except Exception as e:
+        print(f"Email login error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Login error: {str(e)}")
 
 @router.post("/verify-email", response_model=EmailVerificationResponse)
 def verify_user_email(token_data: TokenVerification, db: Session = Depends(get_db)):
@@ -155,3 +206,39 @@ def check_user_status(email: str, db: Session = Depends(get_db)):
         "id": user.id,
         "created_at": user.created_at
     }
+
+# Standard OAuth2 login with form data
+from fastapi.security import OAuth2PasswordRequestForm
+
+@router.post("/token")
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    """Standard OAuth2 token endpoint."""
+    try:
+        user = db.query(User).filter(User.email == form_data.username).first()
+        if not user or not verify_password(form_data.password, user.password_hash):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Check if email is verified - temporarily bypassed
+        if not user.is_verified:
+            # For debugging, let's temporarily bypass this
+            # raise HTTPException(
+            #     status_code=401,
+            #     detail="Email not verified. Please check your inbox for a verification link."
+            # )
+            pass
+        
+        token = create_access_token({"sub": str(user.id), "email": user.email})
+        return {"access_token": token, "token_type": "bearer"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"OAuth token error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error during authentication: {str(e)}",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
