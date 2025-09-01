@@ -10,6 +10,7 @@ import os
 from ..models.user import User
 from ..models.verification import EmailVerification
 from ..services.email import send_email
+from ..core.config import settings
 
 def create_verification_token(db: Session, user_id: int) -> str:
     """
@@ -56,13 +57,16 @@ def verify_email(db: Session, token: str) -> bool:
     db.commit()
     return True
 
-def send_verification_email(db: Session, user: User, base_url: str) -> bool:
+def send_verification_email(db: Session, user: User, base_url: str = None) -> bool:
     """
     Send a verification email to a user.
     Returns True if email was sent successfully, False otherwise.
     """
     token = create_verification_token(db, user.id)
-    verification_url = f"{base_url}/verify-email?token={token}"
+    
+    # Use the frontend URL from settings for verification links
+    frontend_url = settings.FRONTEND_URL
+    verification_url = f"{frontend_url}/verify-email?token={token}"
     
     # Email content
     subject = "Verify your FormHook account"

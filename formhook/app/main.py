@@ -4,10 +4,12 @@ FormHook FastAPI Application Entry Point
 This is the main entry point for the FormHook backend service.
 It includes app setup, middleware, and route registration.
 """
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from .core.config import settings
 from .routes import auth, forms, submissions, dashboard, analytics
+import os
 
 app = FastAPI(title="FormHook API", description="Plug-and-play backend for HTML forms.")
 
@@ -59,3 +61,11 @@ def read_root():
 def health_check():
     """Health check endpoint for deployment platforms."""
     return {"status": "ok"}
+
+# Email verification redirect endpoint
+@app.get("/verify-email")
+async def redirect_to_frontend(token: str):
+    """Redirects email verification links to the frontend verification page"""
+    frontend_url = settings.FRONTEND_URL
+    redirect_url = f"{frontend_url}/verify-email?token={token}"
+    return RedirectResponse(url=redirect_url)

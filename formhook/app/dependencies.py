@@ -29,4 +29,12 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     user = db.query(User).filter(User.id == int(payload["sub"])).first()
     if user is None:
         raise credentials_exception
+    
+    # Check if user's email is verified
+    if not user.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email not verified. Please verify your email before accessing this resource."
+        )
+    
     return user

@@ -1,31 +1,26 @@
-import secrets
-
-# JWT utilities
-
-def generate_api_token() -> str:
-    """Generate a secure random API token (UUID4-like, 32+ chars)."""
-    return secrets.token_urlsafe(32)
-
-def hash_api_token(token: str) -> str:
-    """Hash API token for storage (bcrypt)."""
-    return pwd_context.hash(token)
 """
 Security utilities for password hashing and JWT handling.
 """
-from passlib.context import CryptContext
+import bcrypt
 from jose import jwt, JWTError
 from datetime import datetime, timedelta
 from .config import settings
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+import secrets
 
 # Password hashing
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    """Hash a password using bcrypt."""
+    password_bytes = password.encode('utf-8')
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password_bytes, salt)
+    return hashed.decode('utf-8')
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    """Verify a password against a hash using bcrypt."""
+    password_bytes = plain_password.encode('utf-8')
+    hashed_bytes = hashed_password.encode('utf-8')
+    return bcrypt.checkpw(password_bytes, hashed_bytes)
 
 # JWT utilities
 
@@ -42,3 +37,13 @@ def decode_access_token(token: str):
         return payload
     except JWTError:
         return None
+
+# API Token utilities
+
+def generate_api_token() -> str:
+    """Generate a secure random API token (UUID4-like, 32+ chars)."""
+    return secrets.token_urlsafe(32)
+
+def hash_api_token(token: str) -> str:
+    """Hash API token for storage (bcrypt)."""
+    return hash_password(token)

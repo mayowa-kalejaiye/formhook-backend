@@ -38,16 +38,8 @@ def signup(user: UserCreate, request: Request, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_user)
     
-    # Get base URL or use environment variable
-    base_url = str(request.base_url)
-    if base_url.endswith("/"):
-        base_url = base_url[:-1]
-    
-    # Use frontend URL from environment or fallback to base URL
-    frontend_url = os.getenv("FRONTEND_URL", base_url)
-    
-    # Send verification email
-    send_verification_email(db, db_user, frontend_url)
+    # Send verification email (no need to pass base_url anymore)
+    send_verification_email(db, db_user)
     
     return db_user
 
@@ -87,7 +79,6 @@ def verify_user_email(token_data: TokenVerification, db: Session = Depends(get_d
 @router.post("/request-verification", response_model=EmailVerificationResponse)
 def request_email_verification(
     req: EmailVerificationRequest, 
-    request: Request,
     db: Session = Depends(get_db)
 ):
     """Request a new verification email."""
@@ -100,15 +91,8 @@ def request_email_verification(
     if user.is_verified:
         return {"success": True, "message": "Your email is already verified"}
     
-    # Get base URL from request
-    base_url = str(request.base_url)
-    if base_url.endswith("/"):
-        base_url = base_url[:-1]
-    
-    # Frontend URL from environment or config
-    frontend_url = os.getenv("FRONTEND_URL", base_url)
-    
-    result = send_verification_email(db, user, frontend_url)
+    # Send verification email
+    result = send_verification_email(db, user)
     
     return {
         "success": True, 

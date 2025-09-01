@@ -19,5 +19,6 @@ class Settings(BaseSettings):
     FROM_EMAIL: str = os.getenv("FROM_EMAIL", "")
     ALLOWED_ORIGINS: List[str] = ["*"]
     RATE_LIMIT: str = os.getenv("RATE_LIMIT", "10/minute")
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "https://formhook-frontend.vercel.app")
 
 settings = Settings()
