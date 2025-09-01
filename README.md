@@ -34,6 +34,7 @@ A plug-and-play backend service for HTML forms. Accept submissions from static s
 
 #### Signup
 `POST /auth/signup`
+
 **Payload:**
 ```json
 {
@@ -41,6 +42,7 @@ A plug-and-play backend service for HTML forms. Accept submissions from static s
   "password": "yourpassword"
 }
 ```
+
 **Response:**
 ```json
 {
@@ -49,8 +51,11 @@ A plug-and-play backend service for HTML forms. Accept submissions from static s
 }
 ```
 
+**Note:** A verification email will be sent to the provided email address.
+
 #### Login
 `POST /auth/login`
+
 **Payload:**
 ```json
 {
@@ -58,11 +63,50 @@ A plug-and-play backend service for HTML forms. Accept submissions from static s
   "password": "yourpassword"
 }
 ```
+
 **Response:**
 ```json
 {
   "access_token": "...",
   "token_type": "bearer"
+}
+```
+
+**Note:** Email must be verified before login is allowed.
+
+#### Verify Email
+`POST /auth/verify-email`
+
+**Payload:**
+```json
+{
+  "token": "verification-token-from-email"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Email verified successfully"
+}
+```
+
+#### Request Email Verification
+`POST /auth/request-verification`
+
+**Payload:**
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "If your email exists in our system, you will receive a verification link"
 }
 ```
 
