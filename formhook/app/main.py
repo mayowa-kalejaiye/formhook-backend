@@ -13,13 +13,20 @@ import os
 
 app = FastAPI(title="FormHook API", description="Plug-and-play backend for HTML forms.")
 
-# CORS Middleware
+# CORS Middleware - Update to explicitly allow the frontend domain
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_origins=(
+        [settings.FRONTEND_URL,
+         "https://formhook-frontend.vercel.app",
+         "http://localhost:3000"] +
+        (settings.ALLOWED_ORIGINS if isinstance(settings.ALLOWED_ORIGINS, list) else [])
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=600,  # Cache preflight requests for 10 minutes
 )
 
 
