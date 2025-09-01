@@ -11,11 +11,11 @@ from ..schemas.verification import EmailVerificationRequest, EmailVerificationRe
 from ..services.verification import verify_email, send_verification_email
 from pydantic import EmailStr, BaseModel
 import os
+from fastapi.security import OAuth2PasswordRequestForm
 
 router = APIRouter()
 
 # Dependency to get DB session
-
 def get_db():
     db = SessionLocal()
     try:
@@ -25,33 +25,46 @@ def get_db():
 
 @router.post("/signup", response_model=UserOut)
 async def signup(
+    request: Request,
     email: str = Form(None),
     password: str = Form(None),
-    user_json: UserCreate = None,
-    request: Request = None, 
     db: Session = Depends(get_db)
 ):
     """Register a new user and send verification email. Accepts both form data and JSON."""
     try:
-        # Handle both form data and JSON
-        if email and password:
-            # Form data was used
+        print(f"Signup request content type: {request.headers.get('content-type', 'unknown')}")
+        
+        # Try to get data from form first
+        if email is not None and password is not None:
+            # Form data was provided
             user_email = email
             user_password = password
-        elif user_json:
-            # JSON was used
-            user_email = user_json.email
-            user_password = user_json.password
+            print("Using form data for signup")
         else:
-            raise HTTPException(
-                status_code=422, 
-                detail="Invalid request format. Provide email and password either as form data or in JSON body."
-            )
+            # Try to parse JSON body
+            try:
+                body = await request.json()
+                print(f"Signup request JSON body: {body}")
+                user_email = body.get("email")
+                user_password = body.get("password")
+                
+                if not user_email or not user_password:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Missing required fields: email and password"
+                    )
+            except Exception as e:
+                # If we can't parse JSON and don't have form data, raise error
+                print(f"Failed to parse signup request body: {str(e)}")
+                raise HTTPException(
+                    status_code=422,
+                    detail="Invalid request format. Please provide email and password."
+                )
         
         # Check if email already exists
         existing_user = db.query(User).filter(User.email == user_email).first()
         if existing_user:
-            raise HTTPException(status_code=400, detail="Email already registered")
+            raise HTTPException(status_code=400, detail="Email address already registered. Please use a different email or log in.")
         
         # Create user
         db_user = User(email=user_email, password_hash=hash_password(user_password))
@@ -67,6 +80,13 @@ async def signup(
             print(f"Error sending verification email: {e}")
         
         return db_user
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Log any other errors
+        print(f"Signup error: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Registration failed. Please try again later.")
     except HTTPException as e:
         # Re-raise HTTP exceptions
         raise
@@ -84,33 +104,48 @@ class LoginRequest(BaseModel):
 
 @router.post("/login")
 async def login(
+    request: Request,
     email: str = Form(None), 
     password: str = Form(None),
-    request_body: LoginRequest = None,
     db: Session = Depends(get_db)
 ):
     """Authenticate user and return JWT. Accepts both form data and JSON."""
     try:
-        # Handle both form data and JSON
-        if email and password:
-            # Form data was used
-            pass
-        elif request_body:
-            # JSON was used
-            email = request_body.email
-            password = request_body.password
-        else:
-            raise HTTPException(
-                status_code=422, 
-                detail="Invalid request format. Provide email and password either as form data or in JSON body."
-            )
+        print(f"Request content type: {request.headers.get('content-type', 'unknown')}")
         
-        print(f"Login attempt for email: {email}")
+        # Try to get data from form first
+        if email is not None and password is not None:
+            # Form data was provided
+            user_email = email
+            user_password = password
+            print("Using form data for login")
+        else:
+            # Try to parse JSON body
+            try:
+                body = await request.json()
+                print(f"Request JSON body: {body}")
+                user_email = body.get("email")
+                user_password = body.get("password")
+                
+                if not user_email or not user_password:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Missing required fields: email and password"
+                    )
+            except Exception as e:
+                # If we can't parse JSON and don't have form data, raise error
+                print(f"Failed to parse request body: {str(e)}")
+                raise HTTPException(
+                    status_code=422,
+                    detail="Invalid request format. Please provide email and password."
+                )
+        
+        print(f"Login attempt for email: {user_email}")
         
         # Find the user
-        user = db.query(User).filter(User.email == email).first()
-        if not user or not verify_password(password, user.password_hash):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        user = db.query(User).filter(User.email == user_email).first()
+        if not user or not verify_password(user_password, user.password_hash):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
         
         # Check if email is verified - temporarily bypassed
         if not user.is_verified:
@@ -127,9 +162,14 @@ async def login(
         raise
     except Exception as e:
         print(f"Login error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Login failed. Please try again later.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Login error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Login error: {str(e)}")
 
-# Alternative login endpoint for email field name
+# Email login model
 class EmailLoginRequest(BaseModel):
     email: str  # Changed from EmailStr to str for more flexibility
     password: str
@@ -140,7 +180,7 @@ def email_login(request: EmailLoginRequest, db: Session = Depends(get_db)):
     try:
         user = db.query(User).filter(User.email == request.email).first()
         if not user or not verify_password(request.password, user.password_hash):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
         
         # Check if email is verified
         if not user.is_verified:
@@ -153,19 +193,25 @@ def email_login(request: EmailLoginRequest, db: Session = Depends(get_db)):
         
         token = create_access_token({"sub": str(user.id), "email": user.email})
         return {"access_token": token, "token_type": "bearer"}
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Email login error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Login error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Login failed. Please try again later.")
 
 @router.post("/verify-email", response_model=EmailVerificationResponse)
 def verify_user_email(token_data: TokenVerification, db: Session = Depends(get_db)):
     """Verify a user's email using a token."""
-    result = verify_email(db, token_data.token)
-    
-    if result:
-        return {"success": True, "message": "Email verified successfully"}
-    else:
-        return {"success": False, "message": "Invalid or expired verification link"}
+    try:
+        result = verify_email(db, token_data.token)
+        
+        if result:
+            return {"success": True, "message": "Email verified successfully"}
+        else:
+            return {"success": False, "message": "Invalid or expired verification link"}
+    except Exception as e:
+        print(f"Email verification error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Email verification failed. Please try again later.")
 
 @router.post("/request-verification", response_model=EmailVerificationResponse)
 def request_email_verification(
@@ -173,22 +219,30 @@ def request_email_verification(
     db: Session = Depends(get_db)
 ):
     """Request a new verification email."""
-    user = db.query(User).filter(User.email == req.email).first()
-    
-    if not user:
-        # Don't reveal that the email doesn't exist
-        return {"success": True, "message": "If your email exists in our system, you will receive a verification link"}
-    
-    if user.is_verified:
-        return {"success": True, "message": "Your email is already verified"}
-    
-    # Send verification email
-    result = send_verification_email(db, user)
-    
-    return {
-        "success": True, 
-        "message": "If your email exists in our system, you will receive a verification link"
-    }
+    try:
+        user = db.query(User).filter(User.email == req.email).first()
+        
+        if not user:
+            # Don't reveal that the email doesn't exist
+            return {"success": True, "message": "If your email exists in our system, you will receive a verification link"}
+        
+        if user.is_verified:
+            return {"success": True, "message": "Your email is already verified"}
+        
+        # Send verification email
+        send_verification_email(db, user)
+        
+        return {
+            "success": True, 
+            "message": "If your email exists in our system, you will receive a verification link"
+        }
+    except Exception as e:
+        print(f"Request verification error: {str(e)}")
+        # Don't reveal internal errors
+        return {
+            "success": True, 
+            "message": "If your email exists in our system, you will receive a verification link"
+        }
 
 # Debug endpoint - REMOVE IN PRODUCTION
 @router.get("/check-user/{email}")
@@ -208,8 +262,6 @@ def check_user_status(email: str, db: Session = Depends(get_db)):
     }
 
 # Standard OAuth2 login with form data
-from fastapi.security import OAuth2PasswordRequestForm
-
 @router.post("/token")
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     """Standard OAuth2 token endpoint."""
@@ -218,7 +270,7 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
         if not user or not verify_password(form_data.password, user.password_hash):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid credentials",
+                detail="Invalid email or password",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
@@ -239,6 +291,6 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
         print(f"OAuth token error: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error during authentication: {str(e)}",
+            detail="Authentication failed. Please try again later.",
             headers={"WWW-Authenticate": "Bearer"},
         )
