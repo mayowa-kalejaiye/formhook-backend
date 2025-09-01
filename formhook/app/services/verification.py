@@ -37,25 +37,30 @@ def verify_email(db: Session, token: str) -> bool:
     Verify a user's email using a token.
     Returns True if successful, False otherwise.
     """
-    verification = db.query(EmailVerification).filter(
-        EmailVerification.token == token,
-        EmailVerification.is_used == False,
-        EmailVerification.expires_at > datetime.utcnow()
-    ).first()
-    
-    if not verification:
+    try:
+        verification = db.query(EmailVerification).filter(
+            EmailVerification.token == token,
+            EmailVerification.is_used == False,
+            EmailVerification.expires_at > datetime.utcnow()
+        ).first()
+        
+        if not verification:
+            return False
+        
+        # Mark token as used
+        verification.is_used = True
+        
+        # Mark user as verified
+        user = db.query(User).filter(User.id == verification.user_id).first()
+        if user:
+            user.is_verified = True
+        
+        db.commit()
+        return True
+    except Exception as e:
+        print(f"Error verifying email: {e}")
+        db.rollback()
         return False
-    
-    # Mark token as used
-    verification.is_used = True
-    
-    # Mark user as verified
-    user = db.query(User).filter(User.id == verification.user_id).first()
-    if user:
-        user.is_verified = True
-    
-    db.commit()
-    return True
 
 def send_verification_email(db: Session, user: User, base_url: str = None) -> bool:
     """
