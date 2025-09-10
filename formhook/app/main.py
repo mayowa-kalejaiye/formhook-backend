@@ -29,6 +29,15 @@ app.add_middleware(
     max_age=600,  # Cache preflight requests for 10 minutes
 )
 
+#Debugging
+from fastapi import Request
+
+@app.middleware("http")
+async def log_origin(request: Request, call_next):
+    print("Request Origin:", request.headers.get("origin"))
+    response = await call_next(request)
+    return response
+
 
 # Rate limiting middleware (SlowAPI)
 
