@@ -1,8 +1,8 @@
 """
 Pydantic schemas for Submission entity.
 """
-from pydantic import BaseModel, field_serializer
-from typing import Dict, Any
+from pydantic import BaseModel, validator
+from typing import Dict, Any, Union
 from datetime import datetime
 from uuid import UUID
 
@@ -14,9 +14,11 @@ class SubmissionCreate(BaseModel):
     """Schema for creating submissions - only requires data field."""
     data: Dict[str, Any]
 
-class SubmissionOut(SubmissionBase):
+class SubmissionOut(BaseModel):
     id: int
     form_id: str
+    data: Dict[str, Any]
+    ip_address: str
     created_at: datetime
     country: str | None = None
     region: str | None = None
@@ -26,10 +28,12 @@ class SubmissionOut(SubmissionBase):
     longitude: str | None = None
     threat_score: int | None = None
 
-    @field_serializer('form_id')
-    def serialize_form_id(self, form_id: UUID | str) -> str:
-        """Convert UUID to string for serialization."""
-        return str(form_id)
+    @validator('form_id', pre=True)
+    def convert_form_id_to_string(cls, v):
+        """Convert UUID to string if needed."""
+        if isinstance(v, UUID):
+            return str(v)
+        return v
 
     class Config:
         from_attributes = True

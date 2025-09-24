@@ -38,7 +38,7 @@ from ..extensions import limiter
 
 
 
-@router.post("/{form_id}/submit", response_model=SubmissionOut)
+@router.post("/{form_id}/submit")  # Remove response_model for now
 @limiter.limit("5/minute")  # Custom rate limit: 5 submissions per minute per IP
 def submit(form_id: str, submission: SubmissionCreate, request: Request, db: Session = Depends(get_db)):
     """Public endpoint to submit form data. Limited to 5 submissions per minute per IP. Sends notification if set.
@@ -177,7 +177,22 @@ def submit(form_id: str, submission: SubmissionCreate, request: Request, db: Ses
             asyncio.run(forward_with_retries())
         threading.Thread(target=run_webhook_forwarding, daemon=True).start()
 
-    return db_submission
+    # Manually create the response with proper UUID to string conversion
+    response_data = {
+        "id": db_submission.id,
+        "form_id": str(db_submission.form_id),  # Explicitly convert UUID to string
+        "data": db_submission.data,
+        "ip_address": db_submission.ip_address,
+        "created_at": db_submission.created_at,
+        "country": db_submission.country,
+        "region": db_submission.region,
+        "city": db_submission.city,
+        "location_source": db_submission.location_source,
+        "latitude": db_submission.latitude,
+        "longitude": db_submission.longitude,
+        "threat_score": db_submission.threat_score,
+    }
+    return response_data
 
 
 # --- Helper: Log failed token attempts ---
