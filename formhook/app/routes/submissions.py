@@ -177,6 +177,8 @@ def submit(form_id: str, submission: SubmissionCreate, request: Request, db: Ses
             asyncio.run(forward_with_retries())
         threading.Thread(target=run_webhook_forwarding, daemon=True).start()
 
+    return db_submission
+
 
 # --- Helper: Log failed token attempts ---
 def log_failed_token_attempt(db, form_id, ip, reason):
@@ -193,7 +195,6 @@ def retry_webhooks(background_tasks: BackgroundTasks, db: Session = Depends(get_
     """Manually retry all pending webhook deliveries (admin only)."""
     background_tasks.add_task(webhook_service.retry_pending_webhooks, db)
     return {"detail": "Webhook retry task started."}
-    return db_submission
 
 @router.get("/{form_id}/submissions", response_model=List[SubmissionOut])
 def get_submissions(
