@@ -1,9 +1,10 @@
 """
 Pydantic schemas for Submission entity.
 """
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 from typing import Dict, Any
 from datetime import datetime
+from uuid import UUID
 
 class SubmissionBase(BaseModel):
     data: Dict[str, Any]
@@ -25,9 +26,10 @@ class SubmissionOut(SubmissionBase):
     longitude: str | None = None
     threat_score: int | None = None
 
+    @field_serializer('form_id')
+    def serialize_form_id(self, form_id: UUID | str) -> str:
+        """Convert UUID to string for serialization."""
+        return str(form_id)
+
     class Config:
         from_attributes = True
-        # Allow conversion of UUID to string for form_id
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-        }

@@ -2,14 +2,14 @@
 Submission model definition.
 """
 from sqlalchemy import Column, Integer, DateTime, ForeignKey, String
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.sql import func
 from ..core.database import Base
 
 class Submission(Base):
     __tablename__ = "submissions"
     id = Column(Integer, primary_key=True, index=True)
-    form_id = Column(String, ForeignKey("forms.id"), nullable=False)
+    form_id = Column(UUID(as_uuid=True), ForeignKey("forms.id"), nullable=False)  # Use UUID type to match forms.id
     data = Column(JSONB, nullable=False)
     ip_address = Column(String)
     country = Column(String, nullable=True)

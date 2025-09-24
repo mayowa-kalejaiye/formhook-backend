@@ -92,7 +92,7 @@ def submit(form_id: str, submission: SubmissionCreate, request: Request, db: Ses
     # Example: if form.user_id has a profile country, compare here
     # 4. Add risk flags to webhook logs (extend as needed)
     db_submission = Submission(
-        form_id=str(form_id),  # Convert to string explicitly
+        form_id=form_id,  # Keep as UUID, let SQLAlchemy handle the conversion
         data=submission.data,
         ip_address=ip_address,
         country=country,
