@@ -26,4 +26,8 @@ class SubmissionOut(SubmissionBase):
     threat_score: int | None = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
+        # Allow conversion of UUID to string for form_id
+        json_encoders = {
+            datetime: lambda v: v.isoformat(),
+        }
