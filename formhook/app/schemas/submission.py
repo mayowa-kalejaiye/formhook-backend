@@ -9,8 +9,9 @@ class SubmissionBase(BaseModel):
     data: Dict[str, Any]
     ip_address: str
 
-class SubmissionCreate(SubmissionBase):
-    pass
+class SubmissionCreate(BaseModel):
+    """Schema for creating submissions - only requires data field."""
+    data: Dict[str, Any]
 
 class SubmissionOut(SubmissionBase):
     id: int
