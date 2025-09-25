@@ -11,7 +11,7 @@ from ..models.user import User
 from ..models.form import Form
 from ..models.submission import Submission
 from ..models.webhook_delivery import WebhookDelivery
-from ..schemas.form import FormCreate, FormOut, FormWithMetadata
+from ..schemas.form import FormCreate, FormOut, FormWithMetadata, PublicFormOut
 from ..schemas.webhook_delivery import WebhookDeliveryLogOut
 from ..core.security import generate_api_token, hash_api_token
 
@@ -195,3 +195,26 @@ def get_webhook_deliveries(form_id: str, db: Session = Depends(get_db), current_
         raise HTTPException(status_code=404, detail="Form not found")
     logs = db.query(WebhookDelivery).filter(WebhookDelivery.form_id == str(form_id)).order_by(WebhookDelivery.last_attempt_at.desc()).all()
     return logs
+
+
+# Public endpoint - no authentication required
+@router.get("/public/{form_id}", response_model=PublicFormOut)
+def get_public_form(form_id: str, db: Session = Depends(get_db)):
+    """Get form structure for public submissions (no auth required).
+    
+    Returns only the form structure needed for rendering the form publicly:
+    - Form ID, name, description
+    - Field definitions (name, label, type, required)
+    
+    Does not include sensitive information like webhook URLs, API tokens, etc.
+    """
+    form = db.query(Form).filter(Form.id == form_id).first()
+    if not form:
+        raise HTTPException(status_code=404, detail="Form not found")
+    
+    return PublicFormOut(
+        id=form.id,
+        name=form.name,
+        description=form.description,
+        fields=form.fields or []
+    )

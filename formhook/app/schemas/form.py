@@ -56,6 +56,16 @@ class FormOut(FormBase):
     class Config:
         from_attributes = True
 
+class PublicFormOut(BaseModel):
+    """Public form schema for unauthenticated access - only includes structure needed for rendering."""
+    id: uuid.UUID
+    name: str
+    description: Optional[str] = None
+    fields: List[FormField] = Field(default_factory=list)
+
+    class Config:
+        from_attributes = True
+
 class FormWithMetadata(FormOut):
     """Form schema with additional metadata like submission counts."""
     submission_count: int = Field(
