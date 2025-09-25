@@ -1,14 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from pydantic import EmailStr, ValidationError
 from typing import List
+from datetime import datetime, timedelta
 
 from ..dependencies import get_db, get_current_user
 from ..models.user import User
 from ..models.form import Form
+from ..models.submission import Submission
 from ..models.webhook_delivery import WebhookDelivery
-from ..schemas.form import FormCreate, FormOut
+from ..schemas.form import FormCreate, FormOut, FormWithMetadata
 from ..schemas.webhook_delivery import WebhookDeliveryLogOut
 from ..core.security import generate_api_token, hash_api_token
 
@@ -18,10 +21,56 @@ router = APIRouter()
 Form management routes.
 """
 
-@router.get("/", response_model=List[FormOut])
+@router.get("/", response_model=List[FormWithMetadata])
 def get_forms(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """Get all forms for the current user."""
-    return db.query(Form).filter(Form.user_id == current_user.id).all()
+    """Get all forms for the current user with submission counts and metadata."""
+    # Get all forms for the user
+    forms = db.query(Form).filter(Form.user_id == current_user.id).all()
+    
+    # Build enhanced form list with metadata
+    forms_with_metadata = []
+    seven_days_ago = datetime.utcnow() - timedelta(days=7)
+    
+    for form in forms:
+        # Convert UUID to string for query
+        form_id_str = str(form.id)
+        
+        # Get submission counts
+        total_submissions = db.query(Submission).filter(Submission.form_id == form_id_str).count()
+        recent_submissions = db.query(Submission).filter(
+            Submission.form_id == form_id_str,
+            Submission.created_at >= seven_days_ago
+        ).count()
+        
+        # Get last submission timestamp
+        last_submission = db.query(Submission).filter(
+            Submission.form_id == form_id_str
+        ).order_by(Submission.created_at.desc()).first()
+        
+        # Create enhanced form object
+        form_dict = {
+            "id": form.id,
+            "user_id": form.user_id,
+            "name": form.name,
+            "description": form.description,
+            "webhook_url": form.webhook_url,
+            "webhook_headers": form.webhook_headers,
+            "webhook_secret": form.webhook_secret,
+            "notification_email": form.notification_email,
+            "redirect_url": form.redirect_url,
+            "success_message": form.success_message,
+            "fields": form.fields or [],
+            "created_at": form.created_at,
+            "require_token": bool(form.require_token),
+            "submission_count": total_submissions,
+            "recent_submissions": recent_submissions,
+            "last_submission_at": last_submission.created_at if last_submission else None,
+            "status": "active"  # Default status, can be enhanced later
+        }
+        
+        forms_with_metadata.append(FormWithMetadata(**form_dict))
+    
+    return forms_with_metadata
 
 
 @router.post("/", response_model=FormOut)
@@ -59,13 +108,51 @@ def create_form(form: FormCreate, db: Session = Depends(get_db), current_user: U
     return db_form
 
 
-@router.get("/{form_id}", response_model=FormOut)
+@router.get("/{form_id}", response_model=FormWithMetadata)
 def get_form(form_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """Get a form by ID (must belong to current user). Returns full field schema."""
+    """Get a form by ID (must belong to current user) with submission counts and metadata."""
     form = db.query(Form).filter(Form.id == form_id, Form.user_id == current_user.id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
-    return form
+    
+    # Get submission metadata
+    seven_days_ago = datetime.utcnow() - timedelta(days=7)
+    form_id_str = str(form.id)
+    
+    # Get submission counts
+    total_submissions = db.query(Submission).filter(Submission.form_id == form_id_str).count()
+    recent_submissions = db.query(Submission).filter(
+        Submission.form_id == form_id_str,
+        Submission.created_at >= seven_days_ago
+    ).count()
+    
+    # Get last submission timestamp
+    last_submission = db.query(Submission).filter(
+        Submission.form_id == form_id_str
+    ).order_by(Submission.created_at.desc()).first()
+    
+    # Create enhanced form object
+    form_dict = {
+        "id": form.id,
+        "user_id": form.user_id,
+        "name": form.name,
+        "description": form.description,
+        "webhook_url": form.webhook_url,
+        "webhook_headers": form.webhook_headers,
+        "webhook_secret": form.webhook_secret,
+        "notification_email": form.notification_email,
+        "redirect_url": form.redirect_url,
+        "success_message": form.success_message,
+        "fields": form.fields or [],
+        "created_at": form.created_at,
+        "require_token": bool(form.require_token),
+        "submission_count": total_submissions,
+        "recent_submissions": recent_submissions,
+        "last_submission_at": last_submission.created_at if last_submission else None,
+        "status": "active"  # Default status, can be enhanced later
+    }
+    
+    return FormWithMetadata(**form_dict)
 
 @router.delete("/{form_id}")
 def delete_form(form_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
