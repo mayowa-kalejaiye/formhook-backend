@@ -49,6 +49,9 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
+        # Log successful authentication
+        print(f"[Auth] Authenticated user ID: {user.id}, Email: {user.email}")
+        
         # Temporarily bypass email verification check
         # if not user.is_verified:
         #     raise HTTPException(
