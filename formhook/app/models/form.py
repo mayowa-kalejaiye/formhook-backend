@@ -3,7 +3,7 @@ Form model definition.
 """
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
-
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from sqlalchemy.dialects import postgresql
 import uuid
@@ -26,3 +26,6 @@ class Form(Base):
     api_token = Column(String, nullable=True, unique=True, index=True, doc="Hashed API token for form submissions.")
     require_token = Column(Integer, default=0, nullable=False, doc="Require API token for submissions (0=False, 1=True)")
     track_location = Column(Integer, default=0, nullable=False, doc="Track geolocation for submissions (0=False, 1=True)")
+    
+    # Relationships
+    user = relationship("User", back_populates="forms")
