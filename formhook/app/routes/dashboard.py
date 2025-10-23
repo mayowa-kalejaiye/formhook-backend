@@ -56,12 +56,20 @@ def dashboard_summary(
         {"date": (datetime.utcnow() - timedelta(days=i)).date().isoformat(), "count": trend_counter.get((datetime.utcnow() - timedelta(days=i)).date(), 0)}
         for i in range(days-1, -1, -1)
     ]
-    # Webhook stats
-    webhook_stats = db.query(webhook_model.WebhookDelivery).filter(webhook_model.WebhookDelivery.form_id.in_(form_ids)).all()
-    total_webhooks = len(webhook_stats)
-    delivered = sum(1 for w in webhook_stats if w.status == "delivered")
-    failed = sum(1 for w in webhook_stats if w.status == "failed")
-    pending = sum(1 for w in webhook_stats if w.status == "pending")
+    # Webhook stats - with error handling for missing table
+    try:
+        webhook_stats = db.query(webhook_model.WebhookDelivery).filter(webhook_model.WebhookDelivery.form_id.in_(form_ids)).all()
+        total_webhooks = len(webhook_stats)
+        delivered = sum(1 for w in webhook_stats if w.status == "delivered")
+        failed = sum(1 for w in webhook_stats if w.status == "failed")
+        pending = sum(1 for w in webhook_stats if w.status == "pending")
+    except Exception as e:
+        # If webhook_delivery table doesn't exist yet, return empty stats
+        total_webhooks = 0
+        delivered = 0
+        failed = 0
+        pending = 0
+    
     return {
         "total_forms": total_forms,
         "total_submissions": total_submissions,

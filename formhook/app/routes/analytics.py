@@ -113,25 +113,32 @@ def form_analytics(
         )
         submissions_map = {row.date.isoformat(): row.submissions for row in submissions_q}
 
-        # Failed webhooks per interval
-        webhook_q = (
-            db.query(date_expr.label("date"), func.count(WebhookDelivery.id).label("failed_webhooks"))
-            .join(Submission, WebhookDelivery.submission_id == Submission.id)
-            .filter(Submission.form_id == form_id, WebhookDelivery.status == "failed", Submission.created_at >= date_from, Submission.created_at <= date_to)
-            .group_by(date_expr)
-        )
-        webhook_map = {row.date.isoformat(): row.failed_webhooks for row in webhook_q}
-        # ...existing code...
+        # Failed webhooks per interval - with error handling
+        try:
+            webhook_q = (
+                db.query(date_expr.label("date"), func.count(WebhookDelivery.id).label("failed_webhooks"))
+                .join(Submission, WebhookDelivery.submission_id == Submission.id)
+                .filter(Submission.form_id == form_id, WebhookDelivery.status == "failed", Submission.created_at >= date_from, Submission.created_at <= date_to)
+                .group_by(date_expr)
+            )
+            webhook_map = {row.date.isoformat(): row.failed_webhooks for row in webhook_q}
+        except Exception:
+            # If webhook_delivery table doesn't exist, use empty map
+            webhook_map = {}
+        
+        # Emails sent per interval - with error handling
+        try:
+            email_q = (
+                db.query(date_expr.label("date"), func.count(EmailLog.id).label("emails_sent"))
+                .filter(EmailLog.form_id == form_id, EmailLog.status == "SENT", EmailLog.created_at >= date_from, EmailLog.created_at <= date_to)
+                .group_by(date_expr)
+            )
+            email_map = {row.date.isoformat(): row.emails_sent for row in email_q}
+        except Exception:
+            # If email_log table doesn't exist, use empty map
+            email_map = {}
     except Exception as db_exc:
         raise HTTPException(status_code=500, detail="Failed to fetch analytics. Please try again.")
-
-    # Emails sent per interval
-    email_q = (
-        db.query(date_expr.label("date"), func.count(EmailLog.id).label("emails_sent"))
-        .filter(EmailLog.form_id == form_id, EmailLog.status == "SENT", EmailLog.created_at >= date_from, EmailLog.created_at <= date_to)
-        .group_by(date_expr)
-    )
-    email_map = {row.date.isoformat(): row.emails_sent for row in email_q}
 
     # Unique IPs per interval
     ip_q = (
