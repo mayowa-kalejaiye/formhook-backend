@@ -13,6 +13,7 @@ from ..models.submission import Submission
 from ..models.webhook_delivery import WebhookDelivery
 from ..schemas.form import FormCreate, FormOut, FormWithMetadata, PublicFormOut
 from ..schemas.webhook_delivery import WebhookDeliveryLogOut
+from ..services.usage_tracking import PricingValidationService
 from ..core.security import generate_api_token, hash_api_token
 
 router = APIRouter()
@@ -76,6 +77,11 @@ def get_forms(db: Session = Depends(get_db), current_user: User = Depends(get_cu
 @router.post("/", response_model=FormOut)
 def create_form(form: FormCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Create a new form for the authenticated user. Validates notification_email and fields."""
+    
+    # Validate user can create forms based on their pricing tier
+    validation_service = PricingValidationService(db)
+    validation_service.validate_form_creation(current_user)
+    
     # Validate notification_email if present
     if form.notification_email:
         try:

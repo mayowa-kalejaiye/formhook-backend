@@ -18,6 +18,7 @@ from ..models.submission import Submission
 from ..models.form import Form
 from ..services.email import send_email
 from ..services import webhook as webhook_service
+from ..services.usage_tracking import UsageTrackingService, PricingValidationService
 import logging
 import threading
 import httpx
@@ -47,6 +48,29 @@ def submit(form_id: str, submission: SubmissionCreate, request: Request, db: Ses
     form = db.query(Form).filter(Form.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
+
+    # Get form owner for usage validation
+    form_owner = db.query(User).filter(User.id == form.user_id).first()
+    if not form_owner:
+        raise HTTPException(status_code=500, detail="Form owner not found")
+
+    # Validate user can submit forms based on their pricing tier
+    validation_service = PricingValidationService(db)
+    try:
+        validation_service.validate_form_submission(form_owner)
+    except HTTPException as usage_error:
+        # Return a more user-friendly error for public submissions
+        if usage_error.status_code == 402:  # Payment Required
+            raise HTTPException(
+                status_code=503,  # Service Unavailable - more appropriate for public endpoint
+                detail={
+                    "error": "Form temporarily unavailable",
+                    "message": "This form has reached its submission limit. Please try again later or contact the form owner.",
+                    "form_id": form_id,
+                    "retry_after": "24 hours"
+                }
+            )
+        raise usage_error
 
     # --- API Token validation ---
     if getattr(form, "require_token", 0):
@@ -107,6 +131,11 @@ def submit(form_id: str, submission: SubmissionCreate, request: Request, db: Ses
         db.add(db_submission)
         db.commit()
         db.refresh(db_submission)
+        
+        # Track usage for the form owner (increment submission count)
+        usage_service = UsageTrackingService(db)
+        usage_service.record_submission(form_owner)
+        
     except Exception as db_exc:
         db.rollback()
         raise HTTPException(status_code=500, detail="Failed to save submission. Please try again.")
