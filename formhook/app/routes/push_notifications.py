@@ -6,8 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from typing import Optional, List
 
-from ..core.database import get_db
-from ..dependencies import get_current_user
+from ..dependencies import get_db, get_current_user
 from ..models.user import User
 from ..models.push_subscription import PushSubscription
 from ..services.push_notification import PushNotificationService
