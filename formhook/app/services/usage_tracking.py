@@ -215,9 +215,10 @@ class UsageTrackingService:
         
         return None
     
-    def _check_and_reset_monthly_usage(self, user: User) -> None:
-        """Check if monthly usage should be reset and reset if needed."""
-        now = datetime.utcnow()
+    def _check_and_reset_monthly_usage(self, user: User):
+        """Check if monthly usage needs to be reset based on billing cycle."""
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
         
         # Determine reset interval based on billing cycle
         if user.billing_cycle == "yearly":
