@@ -19,6 +19,7 @@ from ..models.form import Form
 from ..services.email import send_email
 from ..services import webhook as webhook_service
 from ..services.usage_tracking import UsageTrackingService, PricingValidationService
+from ..services.notification import NotificationService
 import logging
 import threading
 import httpx
@@ -135,6 +136,25 @@ def submit(form_id: str, submission: SubmissionCreate, request: Request, db: Ses
         # Track usage for the form owner (increment submission count)
         usage_service = UsageTrackingService(db)
         usage_service.record_submission(form_owner)
+        
+        # Create notification for form owner
+        try:
+            NotificationService.create_submission_notification(
+                db=db,
+                user_id=form.user_id,
+                form_name=form.name,
+                form_id=str(form.id),
+                submission_id=db_submission.id,
+                submitter_email=submission.data.get('email'),
+                ip_address=ip_address
+            )
+            
+            # Check for milestones
+            total_submissions = db.query(Submission).filter(Submission.form_id == str(form.id)).count()
+            NotificationService.check_milestone(db, str(form.id), total_submissions)
+        except Exception as notif_error:
+            logging.error(f"Failed to create notification: {notif_error}")
+            # Don't fail the submission if notification fails
         
     except Exception as db_exc:
         db.rollback()

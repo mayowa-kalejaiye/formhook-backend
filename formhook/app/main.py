@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from .core.config import settings
-from .routes import auth, forms, submissions, dashboard, analytics, subscription
+from .routes import auth, forms, submissions, dashboard, analytics, subscription, notifications, push_notifications
 import os
 
 app = FastAPI(title="FormHook API", description="Plug-and-play backend for HTML forms.")
@@ -65,6 +65,8 @@ app.include_router(submissions.router, prefix="/forms", tags=["Submissions"])
 app.include_router(dashboard.router, tags=["Dashboard"])
 app.include_router(analytics.router, tags=["Forms"])
 app.include_router(subscription.router, prefix="/subscription", tags=["Subscription"])
+app.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
+app.include_router(push_notifications.router, prefix="/notifications/push", tags=["Push Notifications"])
 
 
 # Root endpoint

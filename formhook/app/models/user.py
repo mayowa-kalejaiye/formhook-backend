@@ -39,6 +39,7 @@ class User(Base):
     # Relationships
     email_verifications = relationship("EmailVerification", back_populates="user")
     forms = relationship("Form", back_populates="user")
+    push_subscriptions = relationship("PushSubscription", back_populates="user", cascade="all, delete-orphan")
     
     def reset_monthly_usage(self):
         """Reset monthly usage counter (called at billing cycle start)."""
