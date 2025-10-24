@@ -15,6 +15,7 @@ from ..schemas.form import FormCreate, FormOut, FormWithMetadata, PublicFormOut
 from ..schemas.webhook_delivery import WebhookDeliveryLogOut
 from ..services.usage_tracking import PricingValidationService
 from ..core.security import generate_api_token, hash_api_token
+from ..services.cache import cache
 
 router = APIRouter()
 
@@ -24,7 +25,13 @@ Form management routes.
 
 @router.get("/", response_model=List[FormWithMetadata])
 def get_forms(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """Get all forms for the current user with submission counts and metadata."""
+    """Get all forms for the current user with submission counts and metadata. Cached for 60 seconds."""
+    # Try to get from cache
+    cache_key = f"user_forms:{current_user.id}"
+    cached_forms = cache.get(cache_key)
+    if cached_forms is not None:
+        return cached_forms
+    
     # Log for debugging
     print(f"[get_forms] Current user ID: {current_user.id}, Email: {current_user.email}")
     
@@ -78,12 +85,18 @@ def get_forms(db: Session = Depends(get_db), current_user: User = Depends(get_cu
         
         forms_with_metadata.append(FormWithMetadata(**form_dict))
     
+    # Cache the result for 60 seconds
+    cache.set(cache_key, forms_with_metadata, ttl_seconds=60)
+    
     return forms_with_metadata
 
 
 @router.post("/", response_model=FormOut)
 def create_form(form: FormCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Create a new form for the authenticated user. Validates notification_email and fields."""
+    
+    # Invalidate user forms cache when creating a new form
+    cache.delete(f"user_forms:{current_user.id}")
     
     # Validate user can create forms based on their pricing tier
     validation_service = PricingValidationService(db)
@@ -175,6 +188,11 @@ def delete_form(form_id: str, db: Session = Depends(get_db), current_user: User 
         raise HTTPException(status_code=404, detail="Form not found")
     db.delete(form)
     db.commit()
+    
+    # Invalidate cache
+    cache.delete(f"user_forms:{current_user.id}")
+    cache.delete(f"form:{form_id}")
+    
     return {"detail": "Form deleted"}
 
 # --- API Token Management Endpoints ---

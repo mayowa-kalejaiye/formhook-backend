@@ -18,7 +18,11 @@ class Settings(BaseSettings):
     RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
     FROM_EMAIL: str = os.getenv("FROM_EMAIL", "")
     ALLOWED_ORIGINS: List[str] = os.getenv("ALLOWED_ORIGINS", "*").split(",") if "," in os.getenv("ALLOWED_ORIGINS", "*") else ["*"]
-    RATE_LIMIT: str = os.getenv("RATE_LIMIT", "10/minute")
+    
+    # Rate Limiting
+    RATE_LIMIT: str = os.getenv("RATE_LIMIT", "100/minute")  # Default rate limit
+    RATE_LIMIT_AUTHENTICATED: str = os.getenv("RATE_LIMIT_AUTHENTICATED", "200/minute")  # Higher limit for authenticated users
+    
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "https://formhook-frontend.vercel.app")
     
     # VAPID Keys for Push Notifications

@@ -40,11 +40,14 @@ from ..extensions import limiter
 
 
 
-@router.post("/{form_id}/submit")  # Remove response_model for now
-@limiter.limit("5/minute")  # Custom rate limit: 5 submissions per minute per IP
+@router.post("/{form_id}/submit")
+@limiter.limit("100/minute")  # Higher limit - will be per-user for authenticated, per-IP for anonymous
 def submit(form_id: str, submission: SubmissionCreate, request: Request, db: Session = Depends(get_db)):
-    """Public endpoint to submit form data. Limited to 5 submissions per minute per IP. Sends notification if set.
-    If form.require_token is True, requires Authorization: Bearer <token> header matching the stored token.
+    """
+    Public endpoint to submit form data.
+    Rate limits: 100/minute for authenticated users (per user), 100/minute for anonymous (per IP).
+    Sends notification if configured.
+    If form.require_token is True, requires Authorization: Bearer <token> header.
     """
     form = db.query(Form).filter(Form.id == form_id).first()
     if not form:

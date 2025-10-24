@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from ..dependencies import get_db, get_current_user
 from ..models import form as form_model, submission as submission_model, webhook_delivery as webhook_model
 from ..schemas.submission import SubmissionOut
+from ..services.cache import cache
 from datetime import datetime, timedelta
 
 router = APIRouter()
@@ -17,13 +18,18 @@ def dashboard_summary(
     days: int = 30
 ):
     """
-    Returns dashboard summary for the current user:
+    Returns dashboard summary for the current user. Cached for 30 seconds.
     - Total forms count
     - Total submissions count
     - Recent activity (last 5 submissions)
     - Trend data for the selected range (default 30 days)
     - Webhook stats
     """
+    # Try to get from cache
+    cache_key = f"dashboard:{current_user.id}:days_{days}"
+    cached_summary = cache.get(cache_key)
+    if cached_summary is not None:
+        return cached_summary
     # Total forms
     total_forms = db.query(form_model.Form).filter(form_model.Form.user_id == current_user.id).count()
     # Total submissions
@@ -70,7 +76,7 @@ def dashboard_summary(
         failed = 0
         pending = 0
     
-    return {
+    summary = {
         "total_forms": total_forms,
         "total_submissions": total_submissions,
         "recent_submissions": [SubmissionOut.from_orm(s) for s in recent_submissions],
@@ -82,3 +88,8 @@ def dashboard_summary(
             "pending": pending
         }
     }
+    
+    # Cache the result for 30 seconds
+    cache.set(cache_key, summary, ttl_seconds=30)
+    
+    return summary
