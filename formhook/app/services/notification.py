@@ -33,7 +33,7 @@ class NotificationService:
                 badge="/badge-72x72.png",
                 tag=f"{notification.type}-{notification.id}",
                 url=f"/notifications",  # Default to notifications page
-                metadata=notification.metadata,
+                metadata=notification.notification_metadata,
                 requireInteraction=notification.priority == "urgent"
             )
             
@@ -65,7 +65,7 @@ class NotificationService:
             priority="medium",
             title=f"New submission for {form_name}",
             message=f"Received submission from {submitter_email or 'Anonymous'}",
-            metadata={
+            notification_metadata={
                 "formId": form_id,
                 "formName": form_name,
                 "submissionId": str(submission_id),
@@ -97,7 +97,7 @@ class NotificationService:
             priority="high",
             title="Webhook delivery failed",
             message=f"Failed to deliver webhook to {webhook_url}",
-            metadata={
+            notification_metadata={
                 "formId": form_id,
                 "formName": form_name,
                 "webhookUrl": webhook_url,
@@ -129,7 +129,7 @@ class NotificationService:
             priority="low",
             title="Webhook delivered successfully",
             message=f"Webhook successfully delivered to {webhook_url}",
-            metadata={
+            notification_metadata={
                 "formId": form_id,
                 "formName": form_name,
                 "webhookUrl": webhook_url,
@@ -162,7 +162,7 @@ class NotificationService:
             priority=priority,
             title=title,
             message=message,
-            metadata={
+            notification_metadata={
                 "emailTo": email_to,
                 "emailSubject": email_subject,
                 "formId": form_id,
@@ -191,7 +191,7 @@ class NotificationService:
             priority="urgent",
             title=title,
             message=message,
-            metadata={
+            notification_metadata={
                 "ipAddress": ip_address,
                 "userAgent": user_agent
             }
@@ -221,7 +221,7 @@ class NotificationService:
             priority="medium",
             title=f"Milestone reached! 🎉",
             message=f"Your {form_name} just received its {milestone}th {metric}!",
-            metadata={
+            notification_metadata={
                 "formId": form_id,
                 "formName": form_name,
                 "milestone": str(milestone),
@@ -253,7 +253,7 @@ class NotificationService:
             priority="low",
             title=title,
             message=message,
-            metadata={
+            notification_metadata={
                 "formId": form_id,
                 "formName": form_name
             }

@@ -21,7 +21,7 @@ class Notification(Base):
     timestamp = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     read = Column(Boolean, default=False, nullable=False, index=True)
     archived = Column(Boolean, default=False, nullable=False, index=True)
-    metadata = Column(JSONB, nullable=True)
+    notification_metadata = Column(JSONB, nullable=True)  # Renamed from 'metadata' (reserved by SQLAlchemy)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     

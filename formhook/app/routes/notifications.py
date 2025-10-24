@@ -83,7 +83,7 @@ def get_notifications(
             timestamp=notif.timestamp,
             read=notif.read,
             archived=notif.archived,
-            metadata=notif.metadata
+            metadata=notif.notification_metadata
         ))
     
     return NotificationListResponse(

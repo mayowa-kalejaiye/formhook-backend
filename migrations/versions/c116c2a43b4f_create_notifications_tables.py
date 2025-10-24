@@ -33,7 +33,7 @@ def upgrade() -> None:
         sa.Column('timestamp', sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column('read', sa.Boolean(), nullable=False, server_default='false'),
         sa.Column('archived', sa.Boolean(), nullable=False, server_default='false'),
-        sa.Column('metadata', postgresql.JSONB(), nullable=True),
+        sa.Column('notification_metadata', postgresql.JSONB(), nullable=True),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
