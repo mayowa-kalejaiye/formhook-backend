@@ -17,7 +17,10 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
     RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
     FROM_EMAIL: str = os.getenv("FROM_EMAIL", "")
-    ALLOWED_ORIGINS: List[str] = os.getenv("ALLOWED_ORIGINS", "*").split(",") if "," in os.getenv("ALLOWED_ORIGINS", "*") else ["*"]
+    # ALLOWED_ORIGINS can be a comma-separated list (e.g. "https://app.example.com,https://admin.example.com")
+    # If not set, defaults to ["*"] to allow any origin (useful for local dev).
+    _raw_allowed = os.getenv("ALLOWED_ORIGINS", "*")
+    ALLOWED_ORIGINS: List[str] = [o.strip() for o in _raw_allowed.split(",")] if _raw_allowed else ["*"]
     
     # Rate Limiting
     RATE_LIMIT: str = os.getenv("RATE_LIMIT", "100/minute")  # Default rate limit
