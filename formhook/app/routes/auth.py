@@ -1,7 +1,7 @@
 """
 Auth routes: signup, login, and email verification.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Form
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Form, Response
 from sqlalchemy.orm import Session
 from ..schemas.user import UserCreate, UserOut
 from ..models.user import User
@@ -12,6 +12,8 @@ from ..services.verification import verify_email, send_verification_email
 from pydantic import EmailStr, BaseModel
 import os
 from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.responses import JSONResponse
+from ..core.config import settings
 
 router = APIRouter()
 
@@ -157,7 +159,20 @@ async def login(
             pass
         
         token = create_access_token({"sub": str(user.id), "email": user.email})
-        return {"access_token": token, "token_type": "bearer"}
+        # Prepare user payload
+        user_data = {"id": user.id, "email": user.email, "is_verified": user.is_verified}
+        # Set HttpOnly cookie for session-based auth (keeps compatibility by returning token in body)
+        secure_cookie = settings.FRONTEND_URL.startswith("https")
+        resp = JSONResponse({"access_token": token, "token_type": "bearer", "user": user_data})
+        resp.set_cookie(
+            key="access_token",
+            value=token,
+            httponly=True,
+            secure=secure_cookie,
+            samesite="lax",
+            max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        )
+        return resp
     except HTTPException:
         raise
     except Exception as e:
@@ -192,7 +207,18 @@ def email_login(request: EmailLoginRequest, db: Session = Depends(get_db)):
             pass
         
         token = create_access_token({"sub": str(user.id), "email": user.email})
-        return {"access_token": token, "token_type": "bearer"}
+        user_data = {"id": user.id, "email": user.email, "is_verified": user.is_verified}
+        secure_cookie = settings.FRONTEND_URL.startswith("https")
+        resp = JSONResponse({"access_token": token, "token_type": "bearer", "user": user_data})
+        resp.set_cookie(
+            key="access_token",
+            value=token,
+            httponly=True,
+            secure=secure_cookie,
+            samesite="lax",
+            max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        )
+        return resp
     except HTTPException:
         raise
     except Exception as e:
@@ -245,21 +271,21 @@ def request_email_verification(
         }
 
 # Debug endpoint - REMOVE IN PRODUCTION
-@router.get("/check-user/{email}")
-def check_user_status(email: str, db: Session = Depends(get_db)):
-    """Debug endpoint to check user status."""
-    user = db.query(User).filter(User.email == email).first()
-    if not user:
-        return {"exists": False, "message": "User not found"}
+# @router.get("/check-user/{email}")
+# def check_user_status(email: str, db: Session = Depends(get_db)):
+#     """Debug endpoint to check user status."""
+#     user = db.query(User).filter(User.email == email).first()
+#     if not user:
+#         return {"exists": False, "message": "User not found"}
     
-    return {
-        "exists": True,
-        "email": user.email,
-        "is_verified": user.is_verified,
-        "password_hash_length": len(user.password_hash) if user.password_hash else 0,
-        "id": user.id,
-        "created_at": user.created_at
-    }
+#     return {
+#         "exists": True,
+#         "email": user.email,
+#         "is_verified": user.is_verified,
+#         "password_hash_length": len(user.password_hash) if user.password_hash else 0,
+#         "id": user.id,
+#         "created_at": user.created_at
+#     }
 
 # Standard OAuth2 login with form data
 @router.post("/token")
@@ -284,7 +310,18 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
             pass
         
         token = create_access_token({"sub": str(user.id), "email": user.email})
-        return {"access_token": token, "token_type": "bearer"}
+        user_data = {"id": user.id, "email": user.email, "is_verified": user.is_verified}
+        secure_cookie = settings.FRONTEND_URL.startswith("https")
+        resp = JSONResponse({"access_token": token, "token_type": "bearer", "user": user_data})
+        resp.set_cookie(
+            key="access_token",
+            value=token,
+            httponly=True,
+            secure=secure_cookie,
+            samesite="lax",
+            max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        )
+        return resp
     except HTTPException:
         raise
     except Exception as e:

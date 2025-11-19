@@ -57,8 +57,8 @@ This will run migrations automatically on every deployment!
 
 After running migrations, test these endpoints:
 
-1. **Dashboard**: `GET https://your-render-url.onrender.com/dashboard/summary`
-2. **Analytics**: `GET https://your-render-url.onrender.com/forms/{form_id}/analytics`
+1. **Dashboard**: `GET https://formhook-backend.onrender.com/dashboard/summary`
+2. **Analytics**: `GET https://formhook-backend.onrender.com/forms/{form_id}/analytics`
 
 Both should return 200 OK instead of 500 errors.
 

@@ -3,6 +3,7 @@ Shared dependencies for FastAPI routes.
 """
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
+from fastapi import Request
 from sqlalchemy.orm import Session
 from .core.security import decode_access_token
 from .models.user import User
@@ -11,6 +12,27 @@ from .core.database import SessionLocal
 # Update tokenUrl to match our new standard OAuth2 endpoint
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 
+
+def get_token_from_request(request: Request) -> str:
+    """Extract access token from HttpOnly cookie `access_token`, falling back to Authorization header.
+    Raises HTTPException if no token found.
+    """
+    # 1) Try cookie
+    token = request.cookies.get("access_token")
+    if token:
+        return token
+
+    # 2) Fallback to Authorization header (Bearer)
+    auth: str = request.headers.get("authorization") or ""
+    if auth.lower().startswith("bearer "):
+        return auth.split(" ", 1)[1].strip()
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Not authenticated",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
 def get_db():
     db = SessionLocal()
     try:
@@ -18,7 +40,7 @@ def get_db():
     finally:
         db.close()
 
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+def get_current_user(token: str = Depends(get_token_from_request), db: Session = Depends(get_db)):
     try:
         credentials_exception = HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
