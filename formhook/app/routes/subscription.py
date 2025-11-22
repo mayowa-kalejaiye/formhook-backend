@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Dict, Any, Optional, List
 from datetime import datetime
+from ..core.utils import now_utc
 
 from ..dependencies import get_db, get_current_user
 from ..models.user import User
@@ -33,7 +34,7 @@ def get_pricing_plans():
     return PricingPlansOut(
         plans=plans,
         currency="USD",
-        updated_at=datetime.utcnow()
+        updated_at=now_utc()
     )
 
 

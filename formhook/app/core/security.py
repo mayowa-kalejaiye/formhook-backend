@@ -3,7 +3,8 @@ Security utilities for password hashing and JWT handling.
 """
 import bcrypt
 from jose import jwt, JWTError
-from datetime import datetime, timedelta
+from datetime import timedelta
+from .utils import now_utc
 from .config import settings
 import secrets
 
@@ -26,7 +27,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def create_access_token(data: dict, expires_delta: int = None):
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=expires_delta or settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = now_utc() + timedelta(minutes=expires_delta or settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
     return encoded_jwt

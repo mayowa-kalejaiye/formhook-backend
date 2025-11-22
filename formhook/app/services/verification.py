@@ -3,7 +3,7 @@ Service for email verification functionality.
 """
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
-from datetime import datetime
+from ..core.utils import now_utc
 import uuid
 import os
 
@@ -41,7 +41,7 @@ def verify_email(db: Session, token: str) -> bool:
         verification = db.query(EmailVerification).filter(
             EmailVerification.token == token,
             EmailVerification.is_used == False,
-            EmailVerification.expires_at > datetime.utcnow()
+            EmailVerification.expires_at > now_utc()
         ).first()
         
         if not verification:

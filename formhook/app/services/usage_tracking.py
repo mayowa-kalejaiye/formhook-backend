@@ -5,7 +5,7 @@ Service for tracking and validating user usage against pricing tier limits.
 Handles submission counting, limit enforcement, and overage calculations.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
@@ -35,7 +35,8 @@ class UsageTrackingService:
         else:  # monthly
             next_reset = user.current_period_start + timedelta(days=30)
         
-        days_remaining = max(0, (next_reset - datetime.utcnow()).days)
+        # Use timezone-aware datetime for subtraction to match user.current_period_start
+        days_remaining = max(0, (next_reset - datetime.now(timezone.utc)).days)
         
         # Calculate usage percentage
         usage_percentage = (user.current_period_submissions / plan.monthly_submissions) * 100
@@ -133,7 +134,7 @@ class UsageTrackingService:
     
     def get_usage_analytics(self, user: User, days: int = 30) -> Dict[str, Any]:
         """Get detailed usage analytics for a user."""
-        end_date = datetime.utcnow()
+        end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=days)
         
         # Get submission history

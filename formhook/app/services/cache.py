@@ -3,7 +3,8 @@ Simple in-memory caching service for frequently accessed data.
 For production, consider using Redis or Memcached for distributed caching.
 """
 from typing import Any, Optional, Callable
-from datetime import datetime, timedelta
+from datetime import timedelta
+from ..core.utils import now_utc
 import threading
 import logging
 
@@ -15,11 +16,11 @@ class CacheEntry:
     
     def __init__(self, value: Any, ttl_seconds: int):
         self.value = value
-        self.expires_at = datetime.utcnow() + timedelta(seconds=ttl_seconds)
+        self.expires_at = now_utc() + timedelta(seconds=ttl_seconds)
     
     def is_expired(self) -> bool:
         """Check if cache entry has expired."""
-        return datetime.utcnow() > self.expires_at
+        return now_utc() > self.expires_at
 
 
 class CacheService:

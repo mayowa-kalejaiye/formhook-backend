@@ -3,7 +3,8 @@ Service for forwarding submissions to a webhook URL and retrying failed deliveri
 """
 import requests
 import random
-from datetime import datetime, timedelta
+from datetime import timedelta
+from ..core.utils import now_utc
 from sqlalchemy.orm import Session
 from ..models.webhook_delivery import WebhookDelivery
 from ..models.submission import Submission
@@ -15,7 +16,7 @@ RETRY_SCHEDULE = [5, 30, 120, 600, 1800]  # 5s, 30s, 2m, 10m, 30m
 MAX_ATTEMPTS = len(RETRY_SCHEDULE)
 
 def log_webhook_failure(db: Session, submission_id: int, webhook_url: str, response_code: int = None, error_message: str = None, attempts: int = 1):
-    now = datetime.utcnow()
+    now = now_utc()
     # Calculate next_retry_at with jitter
     if attempts <= MAX_ATTEMPTS:
         base_delay = RETRY_SCHEDULE[attempts-1]
@@ -40,7 +41,7 @@ def log_webhook_failure(db: Session, submission_id: int, webhook_url: str, respo
     return delivery
 
 def update_webhook_delivery(db: Session, delivery: WebhookDelivery, status: str, response_code: int = None, error_message: str = None):
-    now = datetime.utcnow()
+    now = now_utc()
     delivery.status = status
     delivery.last_attempt_at = now
     delivery.response_code = response_code
@@ -94,7 +95,7 @@ def retry_pending_webhooks(db: Session):
     """
     Retry all pending webhook deliveries whose next_retry_at <= now().
     """
-    now = datetime.utcnow()
+    now = now_utc()
     pending = db.query(WebhookDelivery).filter(
         WebhookDelivery.status == "PENDING",
         WebhookDelivery.next_retry_at != None,

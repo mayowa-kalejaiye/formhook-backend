@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from pywebpush import webpush, WebPushException
 import json
 import logging
-from datetime import datetime
+from ..core.utils import now_utc
 from typing import Optional, List, Dict, Any
 
 from ..models.push_subscription import PushSubscription
@@ -43,7 +43,7 @@ class PushNotificationService:
             existing_sub.p256dh = p256dh
             existing_sub.auth = auth
             existing_sub.user_agent = user_agent
-            existing_sub.last_used = datetime.utcnow()
+            existing_sub.last_used = now_utc()
             db.commit()
             db.refresh(existing_sub)
             logger.info(f"Updated push subscription for user {user_id}")
@@ -167,7 +167,7 @@ class PushNotificationService:
                 )
 
                 # Update last_used timestamp
-                subscription.last_used = datetime.utcnow()
+                subscription.last_used = now_utc()
                 db.commit()
                 
                 sent += 1
@@ -214,7 +214,7 @@ class PushNotificationService:
         Returns number of deleted subscriptions
         """
         from datetime import timedelta
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        cutoff_date = now_utc() - timedelta(days=days)
         
         expired = db.query(PushSubscription).filter(
             PushSubscription.last_used < cutoff_date

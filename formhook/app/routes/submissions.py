@@ -29,6 +29,7 @@ import hashlib
 import time
 from typing import List, Optional
 from datetime import datetime, timedelta
+from ..core.utils import now_utc
 import csv
 from io import StringIO
 from ..dependencies import get_db, get_current_user
@@ -107,7 +108,7 @@ def submit(form_id: str, submission: SubmissionCreate, request: Request, db: Ses
     recent_count = db.query(Submission).filter(
         Submission.form_id == form_id,
         Submission.ip_address == ip_address,
-        Submission.created_at >= datetime.utcnow() - timedelta(minutes=10)
+        Submission.created_at >= now_utc() - timedelta(minutes=10)
     ).count()
     if recent_count > 5:
         risk_flags.append("rapid_submissions")

@@ -7,7 +7,8 @@ from ..dependencies import get_db, get_current_user
 from ..models import form as form_model, submission as submission_model, webhook_delivery as webhook_model
 from ..schemas.submission import SubmissionOut
 from ..services.cache import cache
-from datetime import datetime, timedelta
+from datetime import timedelta
+from ..core.utils import now_utc
 
 router = APIRouter()
 
@@ -44,7 +45,7 @@ def dashboard_summary(
         .all()
     )
     # Trend data (submissions per day)
-    date_from = datetime.utcnow() - timedelta(days=days)
+    date_from = now_utc() - timedelta(days=days)
     trend = (
         db.query(
             submission_model.Submission.created_at,
@@ -59,7 +60,7 @@ def dashboard_summary(
     from collections import Counter
     trend_counter = Counter(dt.created_at.date() for dt in trend)
     trend_data = [
-        {"date": (datetime.utcnow() - timedelta(days=i)).date().isoformat(), "count": trend_counter.get((datetime.utcnow() - timedelta(days=i)).date(), 0)}
+        {"date": (now_utc() - timedelta(days=i)).date().isoformat(), "count": trend_counter.get((now_utc() - timedelta(days=i)).date(), 0)}
         for i in range(days-1, -1, -1)
     ]
     # Webhook stats - with error handling for missing table

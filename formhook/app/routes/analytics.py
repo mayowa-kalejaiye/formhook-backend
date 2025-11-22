@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, cast, Date, extract
 from datetime import datetime, timedelta
+from ..core.utils import now_utc
 from typing import List, Optional
 from ..dependencies import get_db, get_current_user
 from ..models.form import Form
@@ -34,7 +35,7 @@ def geo_analytics(
         if not form:
             raise HTTPException(status_code=403, detail="Not authorized to access this form.")
         if not date_to:
-            date_to = datetime.utcnow()
+            date_to = now_utc()
         if not date_from:
             date_from = date_to - timedelta(days=30)
 
@@ -95,7 +96,7 @@ def form_analytics(
 
         # Date range
         if not date_to:
-            date_to = datetime.utcnow()
+            date_to = now_utc()
         if not date_from:
             date_from = date_to - timedelta(days=30)
 

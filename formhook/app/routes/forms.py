@@ -4,7 +4,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from pydantic import EmailStr, ValidationError
 from typing import List
-from datetime import datetime, timedelta
+from datetime import timedelta
+from ..core.utils import now_utc
 
 from ..dependencies import get_db, get_current_user
 from ..models.user import User
@@ -44,7 +45,7 @@ def get_forms(db: Session = Depends(get_db), current_user: User = Depends(get_cu
     
     # Build enhanced form list with metadata
     forms_with_metadata = []
-    seven_days_ago = datetime.utcnow() - timedelta(days=7)
+    seven_days_ago = now_utc() - timedelta(days=7)
     
     for form in forms:
         # Convert UUID to string for query
@@ -142,7 +143,7 @@ def get_form(form_id: str, db: Session = Depends(get_db), current_user: User = D
         raise HTTPException(status_code=404, detail="Form not found")
     
     # Get submission metadata
-    seven_days_ago = datetime.utcnow() - timedelta(days=7)
+    seven_days_ago = now_utc() - timedelta(days=7)
     form_id_str = str(form.id)
     
     # Get submission counts
