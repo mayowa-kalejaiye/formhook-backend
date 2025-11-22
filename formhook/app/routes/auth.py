@@ -270,6 +270,20 @@ def request_email_verification(
             "message": "If your email exists in our system, you will receive a verification link"
         }
 
+
+@router.post("/logout")
+def logout(response: Response):
+    """Log out the current user by clearing the HttpOnly `access_token` cookie."""
+    try:
+        # Prepare response and delete cookie
+        resp = JSONResponse({"success": True, "message": "Logged out"})
+        # Ensure cookie deletion by instructing client to remove it
+        resp.delete_cookie("access_token", path="/")
+        return resp
+    except Exception as e:
+        print(f"Logout error: {e}")
+        raise HTTPException(status_code=500, detail="Logout failed. Please try again.")
+
 # Debug endpoint - REMOVE IN PRODUCTION
 # @router.get("/check-user/{email}")
 # def check_user_status(email: str, db: Session = Depends(get_db)):

@@ -5,10 +5,46 @@ Complete API reference for all FormHook backend endpoints with request/response 
 **Base URL:** `http://localhost:8000` (development) / `https://api.formhook.com` (production)
 
 **Version:** 1.0.0  
-**Last Updated:** October 23, 2025
 
 ---
 
+### 8. Logout
+
+**POST** `/auth/logout`
+
+Clear the HttpOnly `access_token` cookie to log the user out.
+
+**Request**
+- No body required. If using cookies, make the request with credentials included.
+
+**Example (fetch)**
+```js
+await fetch('https://formhook-backend.onrender.com/auth/logout', {
+  method: 'POST',
+  credentials: 'include',
+});
+```
+
+**Example (axios)**
+```js
+await axios.post('https://formhook-backend.onrender.com/auth/logout', {}, { withCredentials: true });
+```
+
+**Response** (200 OK):
+```json
+{
+  "success": true,
+  "message": "Logged out"
+}
+```
+
+**Notes:**
+- The endpoint deletes the `access_token` cookie on the client. After calling this endpoint, the frontend should also clear any in-memory user state.
+- If your frontend relies on cookies for authentication, ensure `credentials: 'include'` or `withCredentials: true` is set and that CORS `allow_credentials` is enabled on the backend.
+
+---
+
+### 7. OAuth2 Token (Standard OAuth Flow)
 ## 📑 Table of Contents
 
 1. [Authentication Endpoints](#authentication-endpoints)
