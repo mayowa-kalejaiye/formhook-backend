@@ -2,7 +2,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, inspect
 from pydantic import EmailStr, ValidationError
 from typing import List
 from datetime import timedelta
@@ -186,13 +186,17 @@ def delete_form(form_id: str, db: Session = Depends(get_db), current_user: User 
         raise HTTPException(status_code=404, detail="Form not found")
 
     form_id_str = str(form.id)
-    submission_ids_subq = db.query(Submission.id).filter(Submission.form_id == form_id_str).subquery()
+    submission_ids = [row[0] for row in db.query(Submission.id).filter(Submission.form_id == form_id_str).all()]
+    inspector = inspect(db.get_bind())
 
     try:
         # Remove dependent records that reference this form's submissions
-        db.query(WebhookDelivery).filter(WebhookDelivery.submission_id.in_(submission_ids_subq)).delete(synchronize_session=False)
-        db.query(IdempotencyKey).filter(IdempotencyKey.submission_id.in_(submission_ids_subq)).delete(synchronize_session=False)
-        db.query(EmailLog).filter(EmailLog.form_id == form_id_str).delete(synchronize_session=False)
+        if submission_ids:
+            if inspector.has_table("webhook_delivery"):
+                db.query(WebhookDelivery).filter(WebhookDelivery.submission_id.in_(submission_ids)).delete(synchronize_session=False)
+            db.query(IdempotencyKey).filter(IdempotencyKey.submission_id.in_(submission_ids)).delete(synchronize_session=False)
+        if inspector.has_table("email_logs"):
+            db.query(EmailLog).filter(EmailLog.form_id == form_id_str).delete(synchronize_session=False)
         db.query(Submission).filter(Submission.form_id == form_id_str).delete(synchronize_session=False)
 
         db.delete(form)
