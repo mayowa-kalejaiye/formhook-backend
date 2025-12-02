@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
@@ -12,6 +13,8 @@ from ..models.user import User
 from ..models.form import Form
 from ..models.submission import Submission
 from ..models.webhook_delivery import WebhookDelivery
+from ..models.idempotency import IdempotencyKey
+from ..models.email_log import EmailLog
 from ..schemas.form import FormCreate, FormOut, FormWithMetadata, PublicFormOut
 from ..schemas.webhook_delivery import WebhookDeliveryLogOut
 from ..services.usage_tracking import PricingValidationService
@@ -19,6 +22,7 @@ from ..core.security import generate_api_token, hash_api_token
 from ..services.cache import cache
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 """
 Form management routes.
@@ -180,8 +184,23 @@ def delete_form(form_id: str, db: Session = Depends(get_db), current_user: User 
     form = db.query(Form).filter(Form.id == form_id, Form.user_id == current_user.id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
-    db.delete(form)
-    db.commit()
+
+    form_id_str = str(form.id)
+    submission_ids_subq = db.query(Submission.id).filter(Submission.form_id == form_id_str).subquery()
+
+    try:
+        # Remove dependent records that reference this form's submissions
+        db.query(WebhookDelivery).filter(WebhookDelivery.submission_id.in_(submission_ids_subq)).delete(synchronize_session=False)
+        db.query(IdempotencyKey).filter(IdempotencyKey.submission_id.in_(submission_ids_subq)).delete(synchronize_session=False)
+        db.query(EmailLog).filter(EmailLog.form_id == form_id_str).delete(synchronize_session=False)
+        db.query(Submission).filter(Submission.form_id == form_id_str).delete(synchronize_session=False)
+
+        db.delete(form)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Failed to delete form %s", form_id_str)
+        raise HTTPException(status_code=500, detail="Failed to delete form. Please try again.") from exc
     
     # Invalidate cache
     cache.delete(f"user_forms:{current_user.id}")
