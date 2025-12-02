@@ -5,7 +5,7 @@ Service for tracking and validating user usage against pricing tier limits.
 Handles submission counting, limit enforcement, and overage calculations.
 """
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
@@ -25,49 +25,30 @@ class UsageTrackingService:
         self.db = db
     
     def get_user_current_usage(self, user: User) -> Dict[str, Any]:
-        """Get current usage statistics for a user.
-
-        When no historical usage exists yet (new accounts), this synthesizes defaults using
-        the current plan limits so the frontend always receives concrete values.
-        """
-        # Ensure keys exist and counters are reset if the billing cycle rolled over
-        self._check_and_reset_monthly_usage(user)
-        self.db.refresh(user)
+        """Return an authoritative usage snapshot for the user's active billing cycle."""
+        submissions_used, period_start, next_reset, lifetime_submissions, forms_count = self._compute_cycle_usage(user)
 
         tier = self._resolve_pricing_tier(user.subscription_tier)
         plan = PricingService.get_plan(tier)
-
         billing_cycle = (user.billing_cycle or "monthly").lower()
-        cycle_days = 365 if billing_cycle == "yearly" else 30
-        current_period_start = user.current_period_start or now_utc()
-        next_reset = current_period_start + timedelta(days=cycle_days)
 
-        # Guard against stale start dates by advancing until the next reset is in the future
-        now = now_utc()
-        while next_reset <= now:
-            next_reset += timedelta(days=cycle_days)
-
-        submissions_used = user.current_period_submissions or 0
         submissions_limit = plan.monthly_submissions
         submissions_remaining = max(0, submissions_limit - submissions_used)
         usage_percentage = round((submissions_used / submissions_limit) * 100, 2) if submissions_limit else 0.0
         is_over_limit = submissions_used > submissions_limit
 
-        forms_count = self.db.query(func.count(Form.id)).filter(Form.user_id == user.id).scalar() or 0
-        forms_limit = plan.max_forms
-
         overage_cost = PricingService.calculate_overage_cost(tier, submissions_used)
         plan_price_cents = plan.price_yearly if billing_cycle == "yearly" else plan.price_monthly
         plan_price = PricingService.format_price(plan_price_cents)
 
+        now = now_utc()
         days_remaining = max(0, int((next_reset - now).total_seconds() // 86400))
-
         upgrade_available = bool(PricingService.get_upgrade_suggestions(tier))
 
         return {
             "current_tier": tier.value,
             "billing_cycle": billing_cycle,
-            "current_period_start": current_period_start,
+            "current_period_start": period_start,
             "next_reset_date": next_reset,
             "days_remaining": days_remaining,
 
@@ -77,10 +58,11 @@ class UsageTrackingService:
             "submissions_remaining": submissions_remaining,
             "usage_percentage": usage_percentage,
             "is_over_limit": is_over_limit,
+            "total_submissions": lifetime_submissions,
 
             # Forms
             "forms_count": forms_count,
-            "forms_limit": forms_limit,
+            "forms_limit": plan.max_forms,
 
             # Financial
             "overage_cost_cents": overage_cost,
@@ -97,25 +79,27 @@ class UsageTrackingService:
         Check if user can submit another form based on their tier limits.
         Returns (can_submit, error_message)
         """
-        self._check_and_reset_monthly_usage(user)
-        plan = PricingService.get_plan(PricingTier(user.subscription_tier))
+        submissions_used, _, _, _, _ = self._compute_cycle_usage(user)
+        tier = self._resolve_pricing_tier(user.subscription_tier)
+        plan = PricingService.get_plan(tier)
         
         # Check if user is over their monthly limit
-        if user.current_period_submissions >= plan.monthly_submissions:
+        if submissions_used >= plan.monthly_submissions:
             # For free tier, enforce hard limits
-            if user.subscription_tier == PricingTier.FREE.value:
+            if tier == PricingTier.FREE:
                 return False, f"Monthly submission limit reached ({plan.monthly_submissions}). Please upgrade to continue."
             
             # For paid tiers, allow overage but warn
             overage_cost = PricingService.calculate_overage_cost(
-                PricingTier(user.subscription_tier), 
-                user.current_period_submissions + 1
+                tier,
+                submissions_used + 1
             )
             
             warning = f"You're over your monthly limit. Additional submissions will incur overage charges."
             if overage_cost > 0:
                 cost_per_submission = PricingService.calculate_overage_cost(
-                    PricingTier(user.subscription_tier), 1
+                    tier,
+                    1
                 )
                 warning += f" Next submission will cost {PricingService.format_price(cost_per_submission)}."
             
@@ -144,7 +128,7 @@ class UsageTrackingService:
     
     def record_submission(self, user: User) -> None:
         """Record a form submission for the user."""
-        self._check_and_reset_monthly_usage(user)
+        self._ensure_usage_defaults(user)
         user.increment_submission_count()
         self.db.commit()
     
@@ -232,29 +216,14 @@ class UsageTrackingService:
         
         return None
     
-    def _check_and_reset_monthly_usage(self, user: User):
-        """Check if monthly usage needs to be reset based on billing cycle."""
-        self._ensure_usage_defaults(user)
-        now = now_utc()
-
-        # Determine reset interval based on billing cycle
-        reset_interval = timedelta(days=365 if user.billing_cycle == "yearly" else 30)
-
-        # Check if reset is needed
-        if now >= user.current_period_start + reset_interval:
-            user.current_period_submissions = 0
-            user.current_period_start = now
-            self.db.commit()
-            self.db.refresh(user)
-    
     def _calculate_usage_efficiency(self, user: User) -> float:
         """Calculate how efficiently the user is using their plan (0-100%)."""
-        self._ensure_usage_defaults(user)
         plan = PricingService.get_plan(self._resolve_pricing_tier(user.subscription_tier))
         if plan.monthly_submissions == 0:
             return 100.0
-        
-        return min(100.0, (user.current_period_submissions / plan.monthly_submissions) * 100)
+
+        submissions_used, *_ = self._compute_cycle_usage(user)
+        return min(100.0, (submissions_used / plan.monthly_submissions) * 100)
 
     def _ensure_usage_defaults(self, user: User) -> None:
         """Ensure subscription tier, billing cycle, and usage counters have sane defaults."""
@@ -296,6 +265,82 @@ class UsageTrackingService:
             return PricingTier(tier_value.lower())
         except ValueError:
             return PricingTier.FREE
+
+    def _compute_cycle_usage(self, user: User) -> Tuple[int, datetime, datetime, int, int]:
+        """Compute usage statistics for the active billing cycle.
+
+        Returns a tuple of (submissions_used, period_start, next_reset, lifetime_submissions, forms_count).
+        """
+        self._ensure_usage_defaults(user)
+        now = now_utc()
+        interval = self._get_billing_interval(user.billing_cycle)
+
+        forms_count = self._get_forms_count(user)
+        lifetime_submissions, first_submission_at = self._get_submission_stats(user, forms_count)
+
+        anchor = user.current_period_start or user.subscription_start_date or user.created_at or now
+        if first_submission_at and (anchor is None or first_submission_at < anchor):
+            anchor = first_submission_at
+        if anchor > now:
+            anchor = now - interval
+
+        elapsed = now - anchor
+        completed_cycles = int(elapsed.total_seconds() // interval.total_seconds()) if elapsed.total_seconds() > 0 else 0
+        period_start = anchor + (interval * completed_cycles)
+        if period_start > now:
+            period_start -= interval
+        while now - period_start >= interval:
+            period_start += interval
+
+        next_reset = period_start + interval
+        submissions_used = self._count_user_submissions(user, period_start, next_reset)
+
+        updated = False
+        if user.total_submissions != lifetime_submissions:
+            user.total_submissions = lifetime_submissions
+            updated = True
+        if user.current_period_submissions != submissions_used or user.current_period_start != period_start:
+            user.current_period_submissions = submissions_used
+            user.current_period_start = period_start
+            updated = True
+        if updated:
+            self.db.commit()
+            self.db.refresh(user)
+
+        return submissions_used, period_start, next_reset, lifetime_submissions, forms_count
+
+    def _get_billing_interval(self, billing_cycle: Optional[str]) -> timedelta:
+        cycle = (billing_cycle or "monthly").lower()
+        return timedelta(days=365 if cycle == "yearly" else 30)
+
+    def _get_forms_count(self, user: User) -> int:
+        return self.db.query(func.count(Form.id)).filter(Form.user_id == user.id).scalar() or 0
+
+    def _get_submission_stats(self, user: User, forms_count: int) -> Tuple[int, Optional[datetime]]:
+        if forms_count == 0:
+            return 0, None
+
+        total_submissions, first_submission_at = (
+            self.db
+            .query(func.count(Submission.id), func.min(Submission.created_at))
+            .join(Form, Submission.form_id == Form.id)
+            .filter(Form.user_id == user.id)
+            .one()
+        )
+        return (total_submissions or 0), first_submission_at
+
+    def _count_user_submissions(self, user: User, start: datetime, end: datetime) -> int:
+        query = (
+            self.db
+            .query(func.count(Submission.id))
+            .join(Form, Submission.form_id == Form.id)
+            .filter(Form.user_id == user.id)
+        )
+        if start:
+            query = query.filter(Submission.created_at >= start)
+        if end:
+            query = query.filter(Submission.created_at < end)
+        return query.scalar() or 0
 
 
 class PricingValidationService:

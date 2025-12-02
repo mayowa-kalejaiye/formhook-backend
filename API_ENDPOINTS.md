@@ -756,6 +756,7 @@ Get current user's subscription information and usage.
     "submissions_remaining": 6550,
     "usage_percentage": 34.5,
     "is_over_limit": false,
+    "total_submissions": 3450,
     "forms_count": 12,
     "overage_cost_cents": 0,
     "days_remaining": 8
@@ -792,6 +793,7 @@ Get detailed usage statistics for current billing period.
   "submissions_remaining": 6550,
   "usage_percentage": 34.5,
   "is_over_limit": false,
+  "total_submissions": 3450,
   "forms_count": 12,
   "forms_limit": null,
   "overage_cost_cents": 0,

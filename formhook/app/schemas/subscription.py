@@ -62,6 +62,7 @@ class UsageStatsOut(BaseModel):
     submissions_remaining: int
     usage_percentage: float
     is_over_limit: bool
+    total_submissions: int
     
     # Form statistics
     forms_count: int
