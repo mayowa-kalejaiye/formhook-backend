@@ -9,6 +9,13 @@ from alembic import context
 # access to the values within the .ini file in use.
 config = context.config
 
+# If DATABASE_URL environment variable is set, prefer it over the value in alembic.ini.
+import os
+env_db_url = os.environ.get('DATABASE_URL') or os.environ.get('SQLALCHEMY_DATABASE_URL')
+if env_db_url:
+    # Override the sqlalchemy.url in the config so migrations run against the provided DB
+    config.set_main_option('sqlalchemy.url', env_db_url)
+
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:

@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     RATE_LIMIT_AUTHENTICATED: str = os.getenv("RATE_LIMIT_AUTHENTICATED", "200/minute")  # Higher limit for authenticated users
     
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "https://formhook-frontend.vercel.app")
+
+    # Submission limits
+    SUBMISSION_MAX_FIELDS: int = int(os.getenv("SUBMISSION_MAX_FIELDS", "200"))
+    SUBMISSION_MAX_SIZE_BYTES: int = int(os.getenv("SUBMISSION_MAX_SIZE_BYTES", str(100 * 1024)))  # 100 KB default
     
     # VAPID Keys for Push Notifications
     VAPID_PUBLIC_KEY: str = os.getenv("VAPID_PUBLIC_KEY", "")

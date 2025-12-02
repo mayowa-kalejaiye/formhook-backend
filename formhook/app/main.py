@@ -50,9 +50,12 @@ app.state.limiter = limiter
 
 @app.exception_handler(RateLimitExceeded)
 async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    # Include a Retry-After header to help clients back off; default to 60s
+    headers = {"Retry-After": "60"}
     return JSONResponse(
         status_code=429,
-        content={"detail": "Rate limit exceeded. Please try again later."}
+        content={"detail": "Rate limit exceeded. Please try again later."},
+        headers=headers
     )
 
 from slowapi.middleware import SlowAPIMiddleware

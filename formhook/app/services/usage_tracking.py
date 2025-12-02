@@ -5,14 +5,16 @@ Service for tracking and validating user usage against pricing tier limits.
 Handles submission counting, limit enforcement, and overage calculations.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Optional, Dict, Any, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
 
 from ..models.user import User
 from ..models.submission import Submission
+from ..models.form import Form
 from ..core.pricing import PricingService, PricingTier
+from ..core.utils import now_utc
 from fastapi import HTTPException
 
 
@@ -23,58 +25,71 @@ class UsageTrackingService:
         self.db = db
     
     def get_user_current_usage(self, user: User) -> Dict[str, Any]:
-        """Get current usage statistics for a user."""
-        # Check if we need to reset the monthly counter
+        """Get current usage statistics for a user.
+
+        When no historical usage exists yet (new accounts), this synthesizes defaults using
+        the current plan limits so the frontend always receives concrete values.
+        """
+        # Ensure keys exist and counters are reset if the billing cycle rolled over
         self._check_and_reset_monthly_usage(user)
-        
-        plan = PricingService.get_plan(PricingTier(user.subscription_tier))
-        
-        # Calculate days remaining in current period
-        if user.billing_cycle == "yearly":
-            next_reset = user.current_period_start + timedelta(days=365)
-        else:  # monthly
-            next_reset = user.current_period_start + timedelta(days=30)
-        
-        # Use timezone-aware datetime for subtraction to match user.current_period_start
-        days_remaining = max(0, (next_reset - datetime.now(timezone.utc)).days)
-        
-        # Calculate usage percentage
-        usage_percentage = (user.current_period_submissions / plan.monthly_submissions) * 100
-        
-        # Calculate overage cost if any
-        overage_cost = PricingService.calculate_overage_cost(
-            PricingTier(user.subscription_tier), 
-            user.current_period_submissions
-        )
-        
+        self.db.refresh(user)
+
+        tier = self._resolve_pricing_tier(user.subscription_tier)
+        plan = PricingService.get_plan(tier)
+
+        billing_cycle = (user.billing_cycle or "monthly").lower()
+        cycle_days = 365 if billing_cycle == "yearly" else 30
+        current_period_start = user.current_period_start or now_utc()
+        next_reset = current_period_start + timedelta(days=cycle_days)
+
+        # Guard against stale start dates by advancing until the next reset is in the future
+        now = now_utc()
+        while next_reset <= now:
+            next_reset += timedelta(days=cycle_days)
+
+        submissions_used = user.current_period_submissions or 0
+        submissions_limit = plan.monthly_submissions
+        submissions_remaining = max(0, submissions_limit - submissions_used)
+        usage_percentage = round((submissions_used / submissions_limit) * 100, 2) if submissions_limit else 0.0
+        is_over_limit = submissions_used > submissions_limit
+
+        forms_count = self.db.query(func.count(Form.id)).filter(Form.user_id == user.id).scalar() or 0
+        forms_limit = plan.max_forms
+
+        overage_cost = PricingService.calculate_overage_cost(tier, submissions_used)
+        plan_price_cents = plan.price_yearly if billing_cycle == "yearly" else plan.price_monthly
+        plan_price = PricingService.format_price(plan_price_cents)
+
+        days_remaining = max(0, int((next_reset - now).total_seconds() // 86400))
+
+        upgrade_available = bool(PricingService.get_upgrade_suggestions(tier))
+
         return {
-            "current_tier": user.subscription_tier,
-            "billing_cycle": user.billing_cycle,
-            "current_period_start": user.current_period_start,
+            "current_tier": tier.value,
+            "billing_cycle": billing_cycle,
+            "current_period_start": current_period_start,
             "next_reset_date": next_reset,
             "days_remaining": days_remaining,
-            
+
             # Usage stats
-            "submissions_used": user.current_period_submissions,
-            "submissions_limit": plan.monthly_submissions,
-            "submissions_remaining": max(0, plan.monthly_submissions - user.current_period_submissions),
-            "usage_percentage": round(usage_percentage, 2),
-            "is_over_limit": user.current_period_submissions > plan.monthly_submissions,
-            
+            "submissions_used": submissions_used,
+            "submissions_limit": submissions_limit,
+            "submissions_remaining": submissions_remaining,
+            "usage_percentage": usage_percentage,
+            "is_over_limit": is_over_limit,
+
             # Forms
-            "forms_count": self.db.query(func.count()).select_from(
-                self.db.query(user).join("forms").subquery()
-            ).scalar() or 0,
-            "forms_limit": plan.max_forms,
-            
+            "forms_count": forms_count,
+            "forms_limit": forms_limit,
+
             # Financial
             "overage_cost_cents": overage_cost,
             "overage_cost_formatted": PricingService.format_price(overage_cost),
-            
+
             # Plan details
             "plan_name": plan.name,
-            "plan_price": PricingService.format_price(plan.price_monthly),
-            "upgrade_available": len(PricingService.get_upgrade_suggestions(PricingTier(user.subscription_tier))) > 0
+            "plan_price": plan_price,
+            "upgrade_available": upgrade_available,
         }
     
     def can_user_submit_form(self, user: User) -> Tuple[bool, Optional[str]]:
@@ -113,6 +128,7 @@ class UsageTrackingService:
         Check if user can create another form based on their tier limits.
         Returns (can_create, error_message)
         """
+        self._ensure_usage_defaults(user)
         plan = PricingService.get_plan(PricingTier(user.subscription_tier))
         
         # Check form limits
@@ -134,7 +150,7 @@ class UsageTrackingService:
     
     def get_usage_analytics(self, user: User, days: int = 30) -> Dict[str, Any]:
         """Get detailed usage analytics for a user."""
-        end_date = datetime.now(timezone.utc)
+        end_date = now_utc()
         start_date = end_date - timedelta(days=days)
         
         # Get submission history
@@ -177,7 +193,7 @@ class UsageTrackingService:
     def get_tier_recommendation(self, user: User) -> Optional[Dict[str, Any]]:
         """Analyze usage and recommend optimal pricing tier."""
         usage = self.get_user_current_usage(user)
-        current_tier = PricingTier(user.subscription_tier)
+        current_tier = self._resolve_pricing_tier(user.subscription_tier)
         
         # If user is consistently under 50% usage, suggest downgrade
         if usage["usage_percentage"] < 50 and current_tier != PricingTier.FREE:
@@ -218,27 +234,68 @@ class UsageTrackingService:
     
     def _check_and_reset_monthly_usage(self, user: User):
         """Check if monthly usage needs to be reset based on billing cycle."""
-        from datetime import timezone
-        now = datetime.now(timezone.utc)
-        
+        self._ensure_usage_defaults(user)
+        now = now_utc()
+
         # Determine reset interval based on billing cycle
-        if user.billing_cycle == "yearly":
-            reset_interval = timedelta(days=365)
-        else:  # monthly
-            reset_interval = timedelta(days=30)
-        
+        reset_interval = timedelta(days=365 if user.billing_cycle == "yearly" else 30)
+
         # Check if reset is needed
         if now >= user.current_period_start + reset_interval:
-            user.reset_monthly_usage()
+            user.current_period_submissions = 0
+            user.current_period_start = now
             self.db.commit()
+            self.db.refresh(user)
     
     def _calculate_usage_efficiency(self, user: User) -> float:
         """Calculate how efficiently the user is using their plan (0-100%)."""
-        plan = PricingService.get_plan(PricingTier(user.subscription_tier))
+        self._ensure_usage_defaults(user)
+        plan = PricingService.get_plan(self._resolve_pricing_tier(user.subscription_tier))
         if plan.monthly_submissions == 0:
             return 100.0
         
         return min(100.0, (user.current_period_submissions / plan.monthly_submissions) * 100)
+
+    def _ensure_usage_defaults(self, user: User) -> None:
+        """Ensure subscription tier, billing cycle, and usage counters have sane defaults."""
+        updated = False
+
+        tier_value = (user.subscription_tier or PricingTier.FREE.value).lower()
+        try:
+            resolved_tier = PricingTier(tier_value)
+        except ValueError:
+            resolved_tier = PricingTier.FREE
+        if user.subscription_tier != resolved_tier.value:
+            user.subscription_tier = resolved_tier.value
+            updated = True
+
+        billing_cycle = (user.billing_cycle or "monthly").lower()
+        if billing_cycle not in ("monthly", "yearly"):
+            billing_cycle = "monthly"
+        if user.billing_cycle != billing_cycle:
+            user.billing_cycle = billing_cycle
+            updated = True
+
+        if user.current_period_start is None:
+            user.current_period_start = now_utc()
+            updated = True
+
+        if user.current_period_submissions is None:
+            user.current_period_submissions = 0
+            updated = True
+
+        if updated:
+            self.db.commit()
+            self.db.refresh(user)
+
+    def _resolve_pricing_tier(self, tier_value: Optional[str]) -> PricingTier:
+        """Normalize arbitrary tier strings to a valid PricingTier (default to FREE)."""
+        if not tier_value:
+            return PricingTier.FREE
+        try:
+            return PricingTier(tier_value.lower())
+        except ValueError:
+            return PricingTier.FREE
 
 
 class PricingValidationService:

@@ -5,6 +5,9 @@ from pydantic import BaseModel, validator
 from typing import Dict, Any, Union
 from datetime import datetime
 from uuid import UUID
+import json
+
+from ..core.config import settings
 
 class SubmissionBase(BaseModel):
     data: Dict[str, Any]
@@ -13,6 +16,31 @@ class SubmissionBase(BaseModel):
 class SubmissionCreate(BaseModel):
     """Schema for creating submissions - only requires data field."""
     data: Dict[str, Any]
+
+    @validator('data')
+    def validate_submission_data(cls, v):
+        # Must be a dict
+        if not isinstance(v, dict):
+            raise ValueError('data must be an object/dictionary')
+
+        # Field count limit
+        if len(v) > settings.SUBMISSION_MAX_FIELDS:
+            raise ValueError(f'data has too many fields (max {settings.SUBMISSION_MAX_FIELDS})')
+
+        # Ensure keys are strings
+        for key in v.keys():
+            if not isinstance(key, str):
+                raise ValueError('all keys in data must be strings')
+
+        # Size limit: JSON serialized length
+        try:
+            size = len(json.dumps(v, ensure_ascii=False).encode('utf-8'))
+        except Exception:
+            raise ValueError('data must be JSON serializable')
+        if size > settings.SUBMISSION_MAX_SIZE_BYTES:
+            raise ValueError(f'data exceeds maximum size of {settings.SUBMISSION_MAX_SIZE_BYTES} bytes')
+
+        return v
 
 class SubmissionOut(BaseModel):
     id: int

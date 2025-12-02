@@ -1,7 +1,7 @@
 """
 Submission routes: public submit, view, and export.
 """
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, BackgroundTasks
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -15,13 +15,14 @@ from fastapi.security import OAuth2PasswordBearer
 from ..models.user import User
 from ..schemas.submission import SubmissionCreate, SubmissionOut
 from ..models.submission import Submission
+from ..models.idempotency import IdempotencyKey
 from ..models.form import Form
 from ..services.email import send_email
 from ..services import webhook as webhook_service
+from ..services import metrics as metrics_service
 from ..services.usage_tracking import UsageTrackingService, PricingValidationService
 from ..services.notification import NotificationService
 import logging
-import threading
 import httpx
 import asyncio
 import hmac
@@ -36,20 +37,74 @@ from ..dependencies import get_db, get_current_user
 
 router = APIRouter()
 
+
+async def _forward_webhook_task(url: str, headers: dict, payload: dict, submission_id: int):
+    """Background task to forward submission payload to a webhook with retries.
+    This helper creates its own DB session so it is safe to run after the request finishes.
+    """
+    from ..core.database import SessionLocal
+
+    max_retries = 3
+    delay = 2
+    attempt = 0
+    while attempt < max_retries:
+        start = time.time()
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(url, json=payload, headers=headers, timeout=5)
+            status = resp.status_code
+            success = 200 <= status < 300
+            db = SessionLocal()
+            try:
+                if success:
+                    # Record success
+                    webhook_service.mark_webhook_success(
+                        db, submission_id, url, response_code=status, duration_ms=int((time.time()-start)*1000)
+                    )
+                else:
+                    webhook_service.log_webhook_failure(
+                        db, submission_id, url,
+                        response_code=status,
+                        error_message=f"Non-2xx response: {status}",
+                        attempts=attempt + 1,
+                        duration_ms=int((time.time()-start)*1000)
+                    )
+            finally:
+                db.close()
+
+            if success:
+                break
+        except Exception as e:
+            db = SessionLocal()
+            try:
+                webhook_service.log_webhook_failure(
+                    db, submission_id, url,
+                    error_message=str(e),
+                    attempts=attempt + 1
+                )
+            finally:
+                db.close()
+            logging.error(f"Failed to forward to webhook: {e}")
+
+        attempt += 1
+        await asyncio.sleep(delay * attempt)
+
 # Import limiter from main app
 from ..extensions import limiter
 
 
 
 @router.post("/{form_id}/submit")
-@limiter.limit("100/minute")  # Higher limit - will be per-user for authenticated, per-IP for anonymous
-def submit(form_id: str, submission: SubmissionCreate, request: Request, db: Session = Depends(get_db)):
+# Use a callable for the limit so we can apply a higher limit for authenticated requests
+@limiter.limit(lambda request: settings.RATE_LIMIT_AUTHENTICATED if request.headers.get('authorization') else settings.RATE_LIMIT)
+def submit(form_id: str, submission: SubmissionCreate, request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
     Public endpoint to submit form data.
     Rate limits: 100/minute for authenticated users (per user), 100/minute for anonymous (per IP).
     Sends notification if configured.
     If form.require_token is True, requires Authorization: Bearer <token> header.
     """
+    # Basic validation: ensure form exists
     form = db.query(Form).filter(Form.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
@@ -91,6 +146,48 @@ def submit(form_id: str, submission: SubmissionCreate, request: Request, db: Ses
 
     from ..services.geo import extract_client_ip, get_geolocation
     ip_address = extract_client_ip(request)
+
+    # --- Idempotency handling ---
+    # Clients may provide an `Idempotency-Key` header to ensure retries do not create duplicates.
+    idempotency_key = request.headers.get('idempotency-key') or request.headers.get('Idempotency-Key')
+    idempotency_hash = None
+    if idempotency_key:
+        try:
+            # Hash the key together with the form_id for safe storage and to scope keys per-form
+            idempotency_hash = hashlib.sha256(f"{form_id}:{idempotency_key}".encode()).hexdigest()
+            existing = db.query(IdempotencyKey).filter(
+                IdempotencyKey.key_hash == idempotency_hash,
+                IdempotencyKey.form_id == str(form_id)
+            ).first()
+            if existing:
+                # Return the previously stored submission to enforce idempotency
+                existing_submission = db.query(Submission).filter(Submission.id == existing.submission_id).first()
+                if existing_submission:
+                        try:
+                            metrics_service.inc('submissions.duplicate')
+                        except Exception:
+                            logging.debug('Failed to increment submissions.duplicate metric')
+                        return {
+                            "id": existing_submission.id,
+                            "form_id": str(existing_submission.form_id),
+                            "data": existing_submission.data,
+                            "ip_address": existing_submission.ip_address,
+                            "created_at": existing_submission.created_at
+                        }
+        except Exception:
+            # If anything goes wrong with idempotency lookup, continue normal flow
+            idempotency_hash = None
+
+    # Early size check: if client provided Content-Length, reject if too large
+    try:
+        content_length = request.headers.get('content-length')
+        if content_length:
+            if int(content_length) > settings.SUBMISSION_MAX_SIZE_BYTES + 1024:
+                # If content-length exceeds allowed + small buffer, reject with 413
+                raise HTTPException(status_code=413, detail="Payload too large")
+    except Exception:
+        # Ignore header parsing errors and continue to schema validation which will catch oversized payloads
+        pass
     geo_data = None
     country = region = city = location_source = latitude = longitude = None
     if getattr(form, "track_location", 0):
@@ -102,6 +199,13 @@ def submit(form_id: str, submission: SubmissionCreate, request: Request, db: Ses
             location_source = geo_data.get('location_source')
             latitude = geo_data.get('latitude')
             longitude = geo_data.get('longitude')
+    # Validate submission payload according to app limits and return 400 on invalid input
+    try:
+        # re-run schema validation explicitly to convert Pydantic errors into HTTP 400
+        submission = SubmissionCreate(**submission.model_dump() if hasattr(submission, 'model_dump') else submission.__dict__)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid submission data: {e}")
+
     # --- Abuse/Threat Monitoring ---
     risk_flags = []
     # 1. Rapid submissions from same IP (last 10 min)
@@ -136,6 +240,11 @@ def submit(form_id: str, submission: SubmissionCreate, request: Request, db: Ses
         db.add(db_submission)
         db.commit()
         db.refresh(db_submission)
+        # Metric: successful submission
+        try:
+            metrics_service.inc('submissions.success')
+        except Exception:
+            logging.debug('Failed to increment submissions.success metric')
         
         # Track usage for the form owner (increment submission count)
         usage_service = UsageTrackingService(db)
@@ -162,7 +271,54 @@ def submit(form_id: str, submission: SubmissionCreate, request: Request, db: Ses
         
     except Exception as db_exc:
         db.rollback()
+        try:
+            metrics_service.inc('submissions.failure')
+        except Exception:
+            logging.debug('Failed to increment submissions.failure metric')
         raise HTTPException(status_code=500, detail="Failed to save submission. Please try again.")
+
+    # If an idempotency key was provided, store the mapping now.
+    if idempotency_hash:
+        try:
+            mapping = IdempotencyKey(
+                key_hash=idempotency_hash,
+                form_id=str(form_id),
+                submission_id=db_submission.id
+            )
+            db.add(mapping)
+            db.commit()
+        except Exception as e:
+            # Possible race: another request inserted the mapping concurrently.
+            # Rollback and fetch the existing mapping; if present, return that submission instead.
+            try:
+                db.rollback()
+                existing = db.query(IdempotencyKey).filter(
+                    IdempotencyKey.key_hash == idempotency_hash,
+                    IdempotencyKey.form_id == str(form_id)
+                ).first()
+                if existing:
+                    existing_submission = db.query(Submission).filter(Submission.id == existing.submission_id).first()
+                    if existing_submission:
+                        # Optionally delete the duplicate we just created to keep DB tidy
+                        try:
+                            db.delete(db_submission)
+                            db.commit()
+                        except Exception:
+                            db.rollback()
+                        try:
+                            metrics_service.inc('submissions.duplicate')
+                        except Exception:
+                            logging.debug('Failed to increment submissions.duplicate metric')
+                        return {
+                            "id": existing_submission.id,
+                            "form_id": str(existing_submission.form_id),
+                            "data": existing_submission.data,
+                            "ip_address": existing_submission.ip_address,
+                            "created_at": existing_submission.created_at
+                        }
+            except Exception:
+                # If anything fails here, log and continue returning the current submission
+                logging.exception("Idempotency mapping failed after race condition")
 
     # Send notification email if set
     if form.notification_email:
@@ -179,56 +335,32 @@ def submit(form_id: str, submission: SubmissionCreate, request: Request, db: Ses
             logging.error(f"Failed to send notification email: {e}")
             raise HTTPException(status_code=500, detail="Failed to send notification email.")
 
-    # Forward to webhook if set (non-blocking, with retry logging, advanced logic)
+    # Forward to webhook if set (non-blocking, with retry logging) using BackgroundTasks
     if form.webhook_url:
-        def run_webhook_forwarding():
-            async def forward_with_retries():
-                max_retries = 3
-                delay = 2
-                attempt = 0
-                payload = {
-                    "form_id": form_id,
-                    "data": submission.data,
-                    "ip_address": request.client.host,
-                    "created_at": str(db_submission.created_at)
-                }
-                headers = form.webhook_headers or {}
-                # HMAC signature if secret is set
-                if form.webhook_secret:
-                    body = httpx.dumps(payload).encode() if hasattr(httpx, 'dumps') else str(payload).encode()
-                    signature = hmac.new(form.webhook_secret.encode(), body, hashlib.sha256).hexdigest()
-                    headers = dict(headers)  # ensure mutable
-                    headers["X-FormHook-Signature"] = signature
-                url = form.webhook_url
-                while attempt < max_retries:
-                    start = time.time()
-                    try:
-                        async with httpx.AsyncClient() as client:
-                            resp = await client.post(url, json=payload, headers=headers, timeout=5)
-                        duration = int((time.time() - start) * 1000)
-                        success = 200 <= resp.status_code < 300
-                        webhook_service.log_webhook_failure(
-                            db, db_submission.id, url,
-                            response_code=resp.status_code,
-                            error_message=None if success else f"Non-2xx response: {resp.status_code}",
-                            attempts=attempt+1
-                        )
-                        # Optionally, update log with headers, response_body, retry_count, duration_ms
-                        # (Extend webhook_service as needed)
-                        if success:
-                            break
-                    except Exception as e:
-                        duration = int((time.time() - start) * 1000)
-                        webhook_service.log_webhook_failure(
-                            db, db_submission.id, url,
-                            error_message=str(e),
-                            attempts=attempt+1
-                        )
-                        logging.error(f"Failed to forward to webhook: {e}")
-                    attempt += 1
-                    await asyncio.sleep(delay * attempt)  # Exponential backoff
-            asyncio.run(forward_with_retries())
-        threading.Thread(target=run_webhook_forwarding, daemon=True).start()
+        payload = {
+            "form_id": form_id,
+            "data": submission.data,
+            "ip_address": request.client.host,
+            "created_at": str(db_submission.created_at)
+        }
+        headers = form.webhook_headers or {}
+        secret = form.webhook_secret
+        url = form.webhook_url
+
+        if secret:
+            # Create a deterministic body representation for signing
+            body_bytes = None
+            try:
+                import json as _json
+                body_bytes = _json.dumps(payload, separators=(",", ":")).encode()
+            except Exception:
+                body_bytes = str(payload).encode()
+            signature = hmac.new(secret.encode(), body_bytes, hashlib.sha256).hexdigest()
+            headers = dict(headers)
+            headers["X-FormHook-Signature"] = signature
+
+        # Schedule the async background task. The task creates its own DB session.
+        background_tasks.add_task(_forward_webhook_task, url, headers, payload, db_submission.id)
 
     # Manually create the response with proper UUID to string conversion
     response_data = {
