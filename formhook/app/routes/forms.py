@@ -33,15 +33,8 @@ def get_forms(db: Session = Depends(get_db), current_user: User = Depends(get_cu
     if cached_forms is not None:
         return cached_forms
     
-    # Log for debugging
-    print(f"[get_forms] Current user ID: {current_user.id}, Email: {current_user.email}")
-    
     # Get all forms for the user
     forms = db.query(Form).filter(Form.user_id == current_user.id).all()
-    
-    print(f"[get_forms] Found {len(forms)} forms for user {current_user.id}")
-    for form in forms[:3]:  # Log first 3 forms
-        print(f"  - Form ID: {form.id}, Owner: {form.user_id}, Name: {form.name}")
     
     # Build enhanced form list with metadata
     forms_with_metadata = []

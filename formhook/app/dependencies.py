@@ -1,6 +1,7 @@
 """
 Shared dependencies for FastAPI routes.
 """
+import logging
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from fastapi import Request
@@ -11,6 +12,7 @@ from .core.database import SessionLocal
 
 # Update tokenUrl to match our new standard OAuth2 endpoint
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
+logger = logging.getLogger(__name__)
 
 
 def get_token_from_request(request: Request) -> str:
@@ -71,9 +73,6 @@ def get_current_user(token: str = Depends(get_token_from_request), db: Session =
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        # Log successful authentication
-        print(f"[Auth] Authenticated user ID: {user.id}, Email: {user.email}")
-        
         # Temporarily bypass email verification check
         # if not user.is_verified:
         #     raise HTTPException(
@@ -85,7 +84,7 @@ def get_current_user(token: str = Depends(get_token_from_request), db: Session =
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Authentication error: {str(e)}")
+        logger.exception("Authentication error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error during authentication: {str(e)}",
