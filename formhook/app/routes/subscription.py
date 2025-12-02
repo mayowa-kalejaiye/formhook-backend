@@ -81,7 +81,6 @@ def get_usage_stats(
     
     return UsageStatsOut(
         user_id=current_user.id,
-        current_tier=current_user.subscription_tier,
         **usage_info
     )
 
