@@ -14,7 +14,6 @@ import json
 
 class PricingTier(str, Enum):
     """Enumeration of available pricing tiers."""
-    FREE = "free"
     STARTER = "starter"
     PROFESSIONAL = "professional"
     BUSINESS = "business"
@@ -59,28 +58,6 @@ class PricingPlan:
 
 # Define all pricing plans
 PRICING_PLANS: Dict[PricingTier, PricingPlan] = {
-    PricingTier.FREE: PricingPlan(
-        tier=PricingTier.FREE,
-        name="Developer Starter",
-        price_monthly=0,
-        price_yearly=0,
-        monthly_submissions=100,
-        max_forms=3,
-        max_team_members=1,
-        file_upload_size_mb=1,
-        api_rate_limit_per_minute=30,
-        features=[
-            "basic_analytics",
-            "email_notifications", 
-            "api_access",
-            "community_support"
-        ],
-        support_level="community",
-        sla_uptime=None,
-        remove_branding=False,
-        white_label=False
-    ),
-    
     PricingTier.STARTER: PricingPlan(
         tier=PricingTier.STARTER,
         name="Starter",
@@ -244,7 +221,6 @@ class PricingService:
     def get_upgrade_suggestions(current_tier: PricingTier) -> List[PricingTier]:
         """Get suggested upgrade tiers for a given tier."""
         tier_order = [
-            PricingTier.FREE,
             PricingTier.STARTER, 
             PricingTier.PROFESSIONAL,
             PricingTier.BUSINESS,
@@ -269,7 +245,6 @@ class PricingService:
         
         # Overage pricing per submission (in cents)
         overage_rates = {
-            PricingTier.FREE: 8,  # $0.08 per submission (encourage upgrades)
             PricingTier.STARTER: 5,  # $0.05 per submission
             PricingTier.PROFESSIONAL: 3,  # $0.03 per submission
             PricingTier.BUSINESS: 1,  # $0.01 per submission

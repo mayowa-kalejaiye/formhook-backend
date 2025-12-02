@@ -22,6 +22,7 @@ class SubscriptionStatus(str, Enum):
     CANCELLED = "cancelled"
     SUSPENDED = "suspended"
     PAST_DUE = "past_due"
+    TRIALING = "trialing"
 
 
 class SubscriptionInfoOut(BaseModel):
@@ -30,11 +31,13 @@ class SubscriptionInfoOut(BaseModel):
     tier: str
     plan_name: str
     status: str
+    subscription_status: str
     billing_cycle: str
     price_monthly: int  # In cents
     price_yearly: int   # In cents
     subscription_start_date: datetime
     subscription_end_date: Optional[datetime] = None
+    trial_ends_at: Optional[datetime] = None
     current_period_start: datetime
     next_billing_date: datetime
     stripe_customer_id: Optional[str] = None
@@ -51,10 +54,12 @@ class UsageStatsOut(BaseModel):
     """User usage statistics response."""
     user_id: int
     current_tier: str
+    subscription_status: str
     billing_cycle: str
     current_period_start: datetime
     next_reset_date: datetime
     days_remaining: int
+    trial_ends_at: Optional[datetime] = None
     
     # Usage statistics
     submissions_used: int
@@ -136,7 +141,7 @@ class SubscriptionUpdateRequest(BaseModel):
     
     @validator('target_tier')
     def validate_tier(cls, v):
-        valid_tiers = ['free', 'starter', 'professional', 'business', 'enterprise']
+        valid_tiers = ['starter', 'professional', 'business', 'enterprise']
         if v.lower() not in valid_tiers:
             raise ValueError(f'Invalid tier. Must be one of: {valid_tiers}')
         return v.lower()

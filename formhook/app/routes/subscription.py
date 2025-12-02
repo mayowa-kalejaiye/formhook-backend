@@ -48,18 +48,24 @@ def get_current_subscription(
     usage_info = usage_service.get_user_current_usage(current_user)
     
     # Get plan details
-    plan = PricingService.get_plan(PricingTier(current_user.subscription_tier))
+    try:
+        tier = PricingTier(current_user.subscription_tier)
+    except ValueError:
+        tier = PricingTier.STARTER
+    plan = PricingService.get_plan(tier)
     
     return SubscriptionInfoOut(
         user_id=current_user.id,
         tier=current_user.subscription_tier,
         plan_name=plan.name,
         status=current_user.subscription_status,
+        subscription_status=current_user.subscription_status,
         billing_cycle=current_user.billing_cycle,
         price_monthly=plan.price_monthly,
         price_yearly=plan.price_yearly,
         subscription_start_date=current_user.subscription_start_date,
         subscription_end_date=current_user.subscription_end_date,
+        trial_ends_at=current_user.trial_ends_at,
         current_period_start=current_user.current_period_start,
         next_billing_date=usage_info["next_reset_date"],
         stripe_customer_id=current_user.stripe_customer_id,
@@ -78,11 +84,15 @@ def get_usage_stats(
     """Get detailed usage statistics for current user."""
     usage_service = UsageTrackingService(db)
     usage_info = usage_service.get_user_current_usage(current_user)
-    
-    return UsageStatsOut(
-        user_id=current_user.id,
-        **usage_info
-    )
+
+    payload = {
+        "user_id": current_user.id,
+        "subscription_status": current_user.subscription_status,
+        "trial_ends_at": current_user.trial_ends_at,
+        **usage_info,
+    }
+
+    return UsageStatsOut(**payload)
 
 
 @router.get("/analytics", response_model=UsageAnalyticsOut)

@@ -85,24 +85,14 @@ class UsageTrackingService:
         
         # Check if user is over their monthly limit
         if submissions_used >= plan.monthly_submissions:
-            # For free tier, enforce hard limits
-            if tier == PricingTier.FREE:
-                return False, f"Monthly submission limit reached ({plan.monthly_submissions}). Please upgrade to continue."
-            
-            # For paid tiers, allow overage but warn
             overage_cost = PricingService.calculate_overage_cost(
                 tier,
                 submissions_used + 1
             )
-            
             warning = f"You're over your monthly limit. Additional submissions will incur overage charges."
             if overage_cost > 0:
-                cost_per_submission = PricingService.calculate_overage_cost(
-                    tier,
-                    1
-                )
+                cost_per_submission = PricingService.calculate_overage_cost(tier, 1)
                 warning += f" Next submission will cost {PricingService.format_price(cost_per_submission)}."
-            
             return True, warning
         
         return True, None
@@ -113,7 +103,7 @@ class UsageTrackingService:
         Returns (can_create, error_message)
         """
         self._ensure_usage_defaults(user)
-        plan = PricingService.get_plan(PricingTier(user.subscription_tier))
+        plan = PricingService.get_plan(self._resolve_pricing_tier(user.subscription_tier))
         
         # Check form limits
         if plan.max_forms is not None:  # None means unlimited
@@ -178,14 +168,13 @@ class UsageTrackingService:
         """Analyze usage and recommend optimal pricing tier."""
         usage = self.get_user_current_usage(user)
         current_tier = self._resolve_pricing_tier(user.subscription_tier)
-        
-        # If user is consistently under 50% usage, suggest downgrade
-        if usage["usage_percentage"] < 50 and current_tier != PricingTier.FREE:
-            # Find lower tier that still accommodates usage
-            all_tiers = [PricingTier.FREE, PricingTier.STARTER, PricingTier.PROFESSIONAL, PricingTier.BUSINESS]
-            for tier in reversed(all_tiers):
-                if tier.value == user.subscription_tier:
-                    break
+
+        # If user is consistently under 50% usage, suggest downgrade when a lower tier exists
+        if usage["usage_percentage"] < 50 and current_tier != PricingTier.STARTER:
+            tiers = [PricingTier.STARTER, PricingTier.PROFESSIONAL, PricingTier.BUSINESS, PricingTier.ENTERPRISE]
+            current_index = tiers.index(current_tier)
+            lower_tiers = tiers[:current_index]
+            for tier in reversed(lower_tiers):
                 plan = PricingService.get_plan(tier)
                 if plan.monthly_submissions >= usage["submissions_used"]:
                     monthly_savings = PricingService.get_plan(current_tier).price_monthly - plan.price_monthly
@@ -229,11 +218,11 @@ class UsageTrackingService:
         """Ensure subscription tier, billing cycle, and usage counters have sane defaults."""
         updated = False
 
-        tier_value = (user.subscription_tier or PricingTier.FREE.value).lower()
+        tier_value = (user.subscription_tier or PricingTier.STARTER.value).lower()
         try:
             resolved_tier = PricingTier(tier_value)
         except ValueError:
-            resolved_tier = PricingTier.FREE
+            resolved_tier = PricingTier.STARTER
         if user.subscription_tier != resolved_tier.value:
             user.subscription_tier = resolved_tier.value
             updated = True
@@ -258,13 +247,13 @@ class UsageTrackingService:
             self.db.refresh(user)
 
     def _resolve_pricing_tier(self, tier_value: Optional[str]) -> PricingTier:
-        """Normalize arbitrary tier strings to a valid PricingTier (default to FREE)."""
+        """Normalize arbitrary tier strings to a valid PricingTier (default to STARTER)."""
         if not tier_value:
-            return PricingTier.FREE
+            return PricingTier.STARTER
         try:
             return PricingTier(tier_value.lower())
         except ValueError:
-            return PricingTier.FREE
+            return PricingTier.STARTER
 
     def _compute_cycle_usage(self, user: User) -> Tuple[int, datetime, datetime, int, int]:
         """Compute usage statistics for the active billing cycle.
@@ -352,10 +341,12 @@ class PricingValidationService:
     
     def validate_form_submission(self, user: User) -> None:
         """Validate that user can submit a form. Raises HTTPException if not allowed."""
+        self._ensure_subscription_active(user)
         can_submit, message = self.usage_service.can_user_submit_form(user)
         
         if not can_submit:
-            upgrade_suggestions = PricingService.get_upgrade_suggestions(PricingTier(user.subscription_tier))
+            tier = self._resolve_user_tier(user)
+            upgrade_suggestions = PricingService.get_upgrade_suggestions(tier)
             upgrade_info = {}
             
             if upgrade_suggestions:
@@ -381,10 +372,12 @@ class PricingValidationService:
     
     def validate_form_creation(self, user: User) -> None:
         """Validate that user can create a form. Raises HTTPException if not allowed."""
+        self._ensure_subscription_active(user)
         can_create, message = self.usage_service.can_user_create_form(user)
         
         if not can_create:
-            upgrade_suggestions = PricingService.get_upgrade_suggestions(PricingTier(user.subscription_tier))
+            tier = self._resolve_user_tier(user)
+            upgrade_suggestions = PricingService.get_upgrade_suggestions(tier)
             upgrade_info = {}
             
             if upgrade_suggestions:
@@ -409,8 +402,10 @@ class PricingValidationService:
     
     def validate_feature_access(self, user: User, feature: str) -> None:
         """Validate that user has access to a specific feature. Raises HTTPException if not allowed."""
-        if not PricingService.can_user_access_feature(PricingTier(user.subscription_tier), feature):
-            plan = PricingService.get_plan(PricingTier(user.subscription_tier))
+        self._ensure_subscription_active(user)
+        tier = self._resolve_user_tier(user)
+        if not PricingService.can_user_access_feature(tier, feature):
+            plan = PricingService.get_plan(tier)
             
             # Find which tier includes this feature
             required_tier = None
@@ -438,3 +433,40 @@ class PricingValidationService:
                     "upgrade_required": upgrade_info
                 }
             )
+
+    def _ensure_subscription_active(self, user: User) -> None:
+        if user.subscription_status == "trialing":
+            if user.trial_ends_at and now_utc() >= user.trial_ends_at:
+                raise HTTPException(
+                    status_code=402,
+                    detail={
+                        "error": "Trial expired",
+                        "message": (
+                            f"Your 3-day Starter trial expired on {user.trial_ends_at.isoformat()} and submissions "
+                            "are paused until you select a paid plan."
+                        ),
+                        "trial_ended_at": user.trial_ends_at.isoformat(),
+                        "next_steps": [
+                            "Select a paid subscription tier",
+                            "Update billing details to resume submissions"
+                        ]
+                    }
+                )
+            return
+
+        if user.subscription_status in {"cancelled", "suspended"}:
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "error": "Subscription inactive",
+                    "message": "Your subscription is not active. Update billing to resume submissions.",
+                    "current_status": user.subscription_status
+                }
+            )
+
+    @staticmethod
+    def _resolve_user_tier(user: User) -> PricingTier:
+        try:
+            return PricingTier(user.subscription_tier)
+        except (ValueError, TypeError):
+            return PricingTier.STARTER
