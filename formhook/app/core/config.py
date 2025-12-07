@@ -4,8 +4,9 @@ Loads environment variables using python-dotenv.
 """
 import os
 from dotenv import load_dotenv
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Union
 load_dotenv()
 
 
@@ -21,8 +22,21 @@ class Settings(BaseSettings):
     # If not set, defaults to ["*"] to allow any origin (useful for local dev).
     _raw_allowed = os.getenv("ALLOWED_ORIGINS", "*")
     ALLOWED_ORIGINS: List[str] = [o.strip() for o in _raw_allowed.split(",")] if _raw_allowed else ["*"]
-    _raw_admins = os.getenv("ADMIN_EMAILS", "")
-    ADMIN_EMAILS: List[str] = [email.strip() for email in _raw_admins.split(",") if email.strip()]
+    ADMIN_EMAILS: List[str] = Field(default_factory=list)
+
+    @field_validator("ADMIN_EMAILS", mode="before")
+    @classmethod
+    def _parse_admin_emails(cls, value: Union[str, List[str], None]):
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return [email.strip() for email in value if isinstance(email, str) and email.strip()]
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                return []
+            return [email.strip() for email in value.split(",") if email.strip()]
+        raise ValueError("ADMIN_EMAILS must be a comma-separated string or list of strings")
     
     # Rate Limiting
     RATE_LIMIT: str = os.getenv("RATE_LIMIT", "100/minute")  # Default rate limit
