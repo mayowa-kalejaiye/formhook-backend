@@ -24,7 +24,7 @@ class UsageTrackingService:
     
     def __init__(self, db: Session):
         self.db = db
-        self._admin_emails = {email.lower() for email in settings.ADMIN_EMAILS}
+        self._admin_emails = {email.lower() for email in settings.admin_emails}
     
     def get_user_current_usage(self, user: User) -> Dict[str, Any]:
         """Return an authoritative usage snapshot for the user's active billing cycle."""
