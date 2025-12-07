@@ -15,6 +15,7 @@ from ..models.submission import Submission
 from ..models.form import Form
 from ..core.pricing import PricingService, PricingTier
 from ..core.utils import now_utc
+from ..core.config import settings
 from fastapi import HTTPException
 
 
@@ -23,6 +24,7 @@ class UsageTrackingService:
     
     def __init__(self, db: Session):
         self.db = db
+        self._admin_emails = {email.lower() for email in settings.ADMIN_EMAILS}
     
     def get_user_current_usage(self, user: User) -> Dict[str, Any]:
         """Return an authoritative usage snapshot for the user's active billing cycle."""
@@ -79,6 +81,8 @@ class UsageTrackingService:
         Check if user can submit another form based on their tier limits.
         Returns (can_submit, error_message)
         """
+        if self._is_admin_user(user):
+            return True, None
         submissions_used, _, _, _, _ = self._compute_cycle_usage(user)
         tier = self._resolve_pricing_tier(user.subscription_tier)
         plan = PricingService.get_plan(tier)
@@ -103,6 +107,8 @@ class UsageTrackingService:
         Returns (can_create, error_message)
         """
         self._ensure_usage_defaults(user)
+        if self._is_admin_user(user):
+            return True, None
         plan = PricingService.get_plan(self._resolve_pricing_tier(user.subscription_tier))
         
         # Check form limits
@@ -255,6 +261,17 @@ class UsageTrackingService:
         except ValueError:
             return PricingTier.STARTER
 
+    def is_admin_user(self, user: User) -> bool:
+        """Public helper so other services can determine admin privileges."""
+        return self._is_admin_user(user)
+
+    def _is_admin_user(self, user: User) -> bool:
+        if getattr(user, "is_admin", False):
+            return True
+        if not user.email:
+            return False
+        return user.email.lower() in self._admin_emails
+
     def _compute_cycle_usage(self, user: User) -> Tuple[int, datetime, datetime, int, int]:
         """Compute usage statistics for the active billing cycle.
 
@@ -341,6 +358,8 @@ class PricingValidationService:
     
     def validate_form_submission(self, user: User) -> None:
         """Validate that user can submit a form. Raises HTTPException if not allowed."""
+        if self.usage_service.is_admin_user(user):
+            return
         self._ensure_subscription_active(user)
         can_submit, message = self.usage_service.can_user_submit_form(user)
         
@@ -372,6 +391,8 @@ class PricingValidationService:
     
     def validate_form_creation(self, user: User) -> None:
         """Validate that user can create a form. Raises HTTPException if not allowed."""
+        if self.usage_service.is_admin_user(user):
+            return
         self._ensure_subscription_active(user)
         can_create, message = self.usage_service.can_user_create_form(user)
         
@@ -402,6 +423,8 @@ class PricingValidationService:
     
     def validate_feature_access(self, user: User, feature: str) -> None:
         """Validate that user has access to a specific feature. Raises HTTPException if not allowed."""
+        if self.usage_service.is_admin_user(user):
+            return
         self._ensure_subscription_active(user)
         tier = self._resolve_user_tier(user)
         if not PricingService.can_user_access_feature(tier, feature):
@@ -435,6 +458,8 @@ class PricingValidationService:
             )
 
     def _ensure_subscription_active(self, user: User) -> None:
+        if self.usage_service.is_admin_user(user):
+            return
         if user.subscription_status == "trialing":
             if user.trial_ends_at and now_utc() >= user.trial_ends_at:
                 raise HTTPException(

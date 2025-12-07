@@ -15,6 +15,7 @@ class User(Base):
     api_token_hash = Column(String, nullable=True)
     token_created_at = Column(DateTime(timezone=True), nullable=True)
     is_verified = Column(Boolean, default=False)
+    is_admin = Column(Boolean, default=False, nullable=False)
     
     # Subscription and Pricing
     subscription_tier = Column(String, default="starter", nullable=False)  # PricingTier enum value

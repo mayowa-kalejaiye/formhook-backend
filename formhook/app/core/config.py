@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     # If not set, defaults to ["*"] to allow any origin (useful for local dev).
     _raw_allowed = os.getenv("ALLOWED_ORIGINS", "*")
     ALLOWED_ORIGINS: List[str] = [o.strip() for o in _raw_allowed.split(",")] if _raw_allowed else ["*"]
+    _raw_admins = os.getenv("ADMIN_EMAILS", "")
+    ADMIN_EMAILS: List[str] = [email.strip() for email in _raw_admins.split(",") if email.strip()]
     
     # Rate Limiting
     RATE_LIMIT: str = os.getenv("RATE_LIMIT", "100/minute")  # Default rate limit
