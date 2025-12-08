@@ -94,6 +94,8 @@ from ..extensions import limiter, submission_rate_limit_selector
 
 
 
+# Legacy public path alias preserved for older frontend builds
+@router.post("/public/{form_id}/submit")
 @router.post("/{form_id}/submit")
 # Use callable so authenticated requests get higher burst limits
 @limiter.limit(submission_rate_limit_selector)
