@@ -89,14 +89,14 @@ async def _forward_webhook_task(url: str, headers: dict, payload: dict, submissi
         attempt += 1
         await asyncio.sleep(delay * attempt)
 
-# Import limiter from main app
-from ..extensions import limiter
+# Import limiter and dynamic rate selector
+from ..extensions import limiter, submission_rate_limit_selector
 
 
 
 @router.post("/{form_id}/submit")
-# Use a callable for the limit so we can apply a higher limit for authenticated requests
-@limiter.limit(lambda request: settings.RATE_LIMIT_AUTHENTICATED if request.headers.get('authorization') else settings.RATE_LIMIT)
+# Use callable so authenticated requests get higher burst limits
+@limiter.limit(submission_rate_limit_selector)
 def submit(form_id: str, submission: SubmissionCreate, request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
     Public endpoint to submit form data.

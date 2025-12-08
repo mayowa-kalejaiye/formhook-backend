@@ -100,27 +100,27 @@ def form_analytics(
         if not date_from:
             date_from = date_to - timedelta(days=30)
 
-        # Grouping logic
-        if interval == "hour":
-            date_expr = func.date_trunc('hour', Submission.created_at)
-        else:
-            date_expr = cast(Submission.created_at, Date)
+        def bucket(column):
+            return func.date_trunc('hour', column) if interval == "hour" else cast(column, Date)
+
+        submission_date_expr = bucket(Submission.created_at)
 
         # Submissions per interval
         submissions_q = (
-            db.query(date_expr.label("date"), func.count(Submission.id).label("submissions"))
+            db.query(submission_date_expr.label("date"), func.count(Submission.id).label("submissions"))
             .filter(Submission.form_id == form_id, Submission.created_at >= date_from, Submission.created_at <= date_to)
-            .group_by(date_expr)
+            .group_by(submission_date_expr)
         )
         submissions_map = {row.date.isoformat(): row.submissions for row in submissions_q}
 
         # Failed webhooks per interval - with error handling
         try:
+            webhook_date_expr = submission_date_expr
             webhook_q = (
-                db.query(date_expr.label("date"), func.count(WebhookDelivery.id).label("failed_webhooks"))
+                db.query(webhook_date_expr.label("date"), func.count(WebhookDelivery.id).label("failed_webhooks"))
                 .join(Submission, WebhookDelivery.submission_id == Submission.id)
                 .filter(Submission.form_id == form_id, WebhookDelivery.status == "failed", Submission.created_at >= date_from, Submission.created_at <= date_to)
-                .group_by(date_expr)
+                .group_by(webhook_date_expr)
             )
             webhook_map = {row.date.isoformat(): row.failed_webhooks for row in webhook_q}
         except Exception:
@@ -129,10 +129,11 @@ def form_analytics(
         
         # Emails sent per interval - with error handling
         try:
+            email_date_expr = bucket(EmailLog.created_at)
             email_q = (
-                db.query(date_expr.label("date"), func.count(EmailLog.id).label("emails_sent"))
+                db.query(email_date_expr.label("date"), func.count(EmailLog.id).label("emails_sent"))
                 .filter(EmailLog.form_id == form_id, EmailLog.status == "SENT", EmailLog.created_at >= date_from, EmailLog.created_at <= date_to)
-                .group_by(date_expr)
+                .group_by(email_date_expr)
             )
             email_map = {row.date.isoformat(): row.emails_sent for row in email_q}
         except Exception:
@@ -143,9 +144,9 @@ def form_analytics(
 
     # Unique IPs per interval
     ip_q = (
-        db.query(date_expr.label("date"), func.count(func.distinct(Submission.ip_address)).label("unique_ips"))
+        db.query(submission_date_expr.label("date"), func.count(func.distinct(Submission.ip_address)).label("unique_ips"))
         .filter(Submission.form_id == form_id, Submission.created_at >= date_from, Submission.created_at <= date_to)
-        .group_by(date_expr)
+        .group_by(submission_date_expr)
     )
     ip_map = {row.date.isoformat(): row.unique_ips for row in ip_q}
 

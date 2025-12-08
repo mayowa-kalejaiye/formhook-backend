@@ -58,6 +58,11 @@ def get_user_identifier(request: Request) -> str:
     return f"form:{form_id}:ip:{ip}"
 
 
+def submission_rate_limit_selector(request: Request, state: Optional[object] = None) -> str:
+    """Return per-request rate limit, handling optional state arg from SlowAPI."""
+    auth_header = request.headers.get('authorization')
+    return settings.RATE_LIMIT_AUTHENTICATED if auth_header else settings.RATE_LIMIT
+
 # Default rate limits from settings
 limiter = Limiter(key_func=get_user_identifier, default_limits=[settings.RATE_LIMIT])
 
