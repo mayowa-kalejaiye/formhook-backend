@@ -45,4 +45,7 @@ class Settings(BaseSettings):
     VAPID_PRIVATE_KEY: str = os.getenv("VAPID_PRIVATE_KEY", "")
     VAPID_SUBJECT: str = os.getenv("VAPID_SUBJECT", "mailto:admin@formhook.com")
 
+    ENABLE_TRIAL_REMINDER_TASK: bool = os.getenv("ENABLE_TRIAL_REMINDER_TASK", "true").lower() not in {"false", "0", "no"}
+    TRIAL_REMINDER_INTERVAL_MINUTES: int = int(os.getenv("TRIAL_REMINDER_INTERVAL_MINUTES", "60"))
+
 settings = Settings()

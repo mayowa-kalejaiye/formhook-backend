@@ -4,12 +4,15 @@ FormHook FastAPI Application Entry Point
 This is the main entry point for the FormHook backend service.
 It includes app setup, middleware, and route registration.
 """
+import asyncio
+from contextlib import suppress
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from .core.config import settings
 from .routes import auth, forms, submissions, dashboard, analytics, subscription, notifications, push_notifications
-import os
+from .tasks.trial_reminder_scheduler import run_trial_reminder_loop
 
 app = FastAPI(title="FormHook API", description="Plug-and-play backend for HTML forms.")
 
@@ -37,6 +40,8 @@ from fastapi.responses import JSONResponse
 from fastapi.requests import Request
 
 app.state.limiter = limiter
+app.state.trial_reminder_task = None
+app.state.trial_reminder_stop = None
 
 @app.exception_handler(RateLimitExceeded)
 async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
@@ -50,6 +55,26 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
 
 from slowapi.middleware import SlowAPIMiddleware
 app.add_middleware(SlowAPIMiddleware)
+
+
+@app.on_event("startup")
+async def start_background_tasks() -> None:
+    if not settings.ENABLE_TRIAL_REMINDER_TASK:
+        return
+    stop_event = asyncio.Event()
+    app.state.trial_reminder_stop = stop_event
+    app.state.trial_reminder_task = asyncio.create_task(run_trial_reminder_loop(stop_event))
+
+
+@app.on_event("shutdown")
+async def stop_background_tasks() -> None:
+    task = getattr(app.state, "trial_reminder_task", None)
+    stop_event = getattr(app.state, "trial_reminder_stop", None)
+    if stop_event:
+        stop_event.set()
+    if task:
+        with suppress(asyncio.CancelledError):
+            await task
 
 # Register routes
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])

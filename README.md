@@ -303,3 +303,9 @@ A plug-and-play backend service for HTML forms. Accept submissions from static s
 - Analytics endpoints provide breakdowns by country, region, city, and time interval.
 - Abuse/threat monitoring flags rapid submissions and datacenter IPs, storing a threat score per submission.
 - See code for more details and TODOs.
+
+## Trial Reminder Emails
+- The API process launches a background task (enabled by default) that checks every `TRIAL_REMINDER_INTERVAL_MINUTES` (defaults to 60) and sends day-2/day-3 reminder emails automatically via Resend.
+- Toggle the loop with `ENABLE_TRIAL_REMINDER_TASK=false` if you prefer external scheduling.
+- A scheduler-friendly helper remains available at `python -m formhook.app.scripts.send_trial_reminders` if you need to trigger reminders from cron/CI.
+- The command inspects `users.trial_ends_at`, skips admins, and records `trial_day2_email_sent_at` / `trial_day3_email_sent_at` in `subscription_metadata` to avoid duplicates.
