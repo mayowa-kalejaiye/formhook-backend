@@ -22,6 +22,7 @@ app.add_middleware(
     allow_origins=(
         [settings.FRONTEND_URL,
          "https://formhook-frontend.vercel.app",
+         "https://formhookapp.com",
          "http://localhost:3000"] +
         (settings.ALLOWED_ORIGINS if isinstance(settings.ALLOWED_ORIGINS, list) else [])
     ),

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
+import time
 from typing import Dict
 
 from sqlalchemy.orm import Session
@@ -24,6 +25,8 @@ class TrialReminderService:
 
     def __init__(self, db: Session):
         self.db = db
+        self._min_interval = max(settings.RESEND_MIN_INTERVAL_SECONDS, 0.0)
+        self._last_send_ts = 0.0
 
     def send_due_reminders(self) -> Dict[str, int]:
         """Send reminder emails for all users whose trial reminders are due."""
@@ -91,6 +94,7 @@ class TrialReminderService:
     def _deliver_email(self, user: User, trial_end, now, day: int) -> bool:
         subject, html = self._build_email_copy(user, trial_end, now, day)
         try:
+            self._respect_rate_limit()
             response = send_email(
                 to_email=user.email,
                 subject=subject,
@@ -100,6 +104,15 @@ class TrialReminderService:
         except Exception:
             logger.exception("Failed to send trial day %s reminder to %s", day, user.email)
             return False
+
+    def _respect_rate_limit(self) -> None:
+        if self._min_interval <= 0:
+            return
+        now = time.monotonic()
+        elapsed = now - self._last_send_ts if self._last_send_ts else None
+        if elapsed is not None and elapsed < self._min_interval:
+            time.sleep(self._min_interval - elapsed)
+        self._last_send_ts = time.monotonic()
 
     def _build_email_copy(self, user: User, trial_end, now, day: int) -> tuple[str, str]:
         billing_url = f"{settings.FRONTEND_URL.rstrip('/')}/billing"

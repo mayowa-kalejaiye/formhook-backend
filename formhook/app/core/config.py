@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
     RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
-    FROM_EMAIL: str = os.getenv("FROM_EMAIL", "")
+    FROM_EMAIL: str = os.getenv("FROM_EMAIL", "notifications@formhookapp.com")
     # ALLOWED_ORIGINS can be a comma-separated list (e.g. "https://app.example.com,https://admin.example.com")
     # If not set, defaults to ["*"] to allow any origin (useful for local dev).
     _raw_allowed = os.getenv("ALLOWED_ORIGINS", "*")
@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     RATE_LIMIT: str = os.getenv("RATE_LIMIT", "100/minute")  # Default rate limit
     RATE_LIMIT_AUTHENTICATED: str = os.getenv("RATE_LIMIT_AUTHENTICATED", "200/minute")  # Higher limit for authenticated users
     
-    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "https://formhook-frontend.vercel.app")
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "https://formhookapp.com")
 
     # Submission limits
     SUBMISSION_MAX_FIELDS: int = int(os.getenv("SUBMISSION_MAX_FIELDS", "200"))
@@ -48,5 +48,6 @@ class Settings(BaseSettings):
     ENABLE_TRIAL_REMINDER_TASK: bool = os.getenv("ENABLE_TRIAL_REMINDER_TASK", "true").lower() not in {"false", "0", "no"}
     TRIAL_REMINDER_INTERVAL_MINUTES: int = int(os.getenv("TRIAL_REMINDER_INTERVAL_MINUTES", "60"))
     REQUIRE_EMAIL_VERIFICATION: bool = os.getenv("REQUIRE_EMAIL_VERIFICATION", "true").lower() not in {"false", "0", "no"}
+    RESEND_MIN_INTERVAL_SECONDS: float = float(os.getenv("RESEND_MIN_INTERVAL_SECONDS", "0.6"))
 
 settings = Settings()

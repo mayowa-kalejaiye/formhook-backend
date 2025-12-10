@@ -76,11 +76,20 @@ def send_verification_email(db: Session, user: User, base_url: str = None) -> bo
     # Email content
     subject = "Verify your FormHook account"
     content = f"""
-    <h1>Verify your email address</h1>
-    <p>Thank you for signing up for FormHook! Please verify your email address by clicking the link below:</p>
-    <p><a href="{verification_url}">Verify Email</a></p>
-    <p>This link will expire in 24 hours.</p>
-    <p>If you didn't create an account, you can ignore this email.</p>
+    <div style="font-family:Arial,Helvetica,sans-serif;line-height:1.5;color:#111">
+        <h2 style="margin-bottom:16px">Confirm your email address</h2>
+        <p>Thanks for signing up for FormHook. Click the button below to verify your email and finish setting up your workspace:</p>
+        <p style="margin:24px 0">
+            <a href="{verification_url}"
+               style="display:inline-block;background:#111;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:600">
+                Verify email
+            </a>
+        </p>
+        <p style="margin-bottom:16px">If the button doesn't work, copy and paste this link into your browser:<br/>
+            <a href="{verification_url}" style="color:#0070f3">{verification_url}</a>
+        </p>
+        <p style="font-size:13px;color:#555">This link expires in 24 hours. If you didn't create a FormHook account, you can safely ignore this message.</p>
+    </div>
     """
     
     # Send email using your existing email service

@@ -4,6 +4,7 @@ Auth routes: signup, login, and email verification.
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Form, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from datetime import timedelta
 from ..schemas.user import UserCreate, UserOut
 from ..models.user import User
 from ..core.database import SessionLocal
@@ -15,6 +16,7 @@ import os
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import JSONResponse
 from ..core.config import settings
+from ..core.utils import now_utc
 
 router = APIRouter()
 
@@ -82,7 +84,13 @@ async def signup(
             raise HTTPException(status_code=400, detail="Email address already registered. Please use a different email or log in.")
         
         # Create user
-        db_user = User(email=user_email, password_hash=hash_password(user_password))
+        trial_end = now_utc() + timedelta(days=3)
+        db_user = User(
+            email=user_email,
+            password_hash=hash_password(user_password),
+            subscription_status="trialing",
+            trial_ends_at=trial_end
+        )
         if not settings.REQUIRE_EMAIL_VERIFICATION:
             db_user.is_verified = True
         db.add(db_user)
