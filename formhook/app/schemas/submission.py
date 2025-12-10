@@ -55,6 +55,8 @@ class SubmissionOut(BaseModel):
     latitude: str | None = None
     longitude: str | None = None
     threat_score: int | None = None
+    device_type: str | None = None
+    user_agent: str | None = None
 
     @validator('form_id', pre=True)
     def convert_form_id_to_string(cls, v):

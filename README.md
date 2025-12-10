@@ -11,6 +11,7 @@ A plug-and-play backend service for HTML forms. Accept submissions from static s
 - Advanced webhooks (custom headers, HMAC, retries, delivery logs)
 - Rate limiting (5 submissions/minute per IP)
 - Geolocation enrichment: submissions include country, region, city, latitude, longitude (if enabled per form)
+- Device fingerprinting: store submitter IP, User-Agent, and inferred device type (mobile/tablet/desktop/bot)
 - Submission analytics: breakdown by country, region, city, and time interval
 - Abuse/threat monitoring: flags rapid submissions from same IP, datacenter IPs, and stores threat score
 

@@ -34,8 +34,27 @@ from ..core.utils import now_utc
 import csv
 from io import StringIO
 from ..dependencies import get_db, get_current_user
+from user_agents import parse as parse_user_agent
 
 router = APIRouter()
+
+
+def detect_device_type(user_agent: str) -> str:
+    if not user_agent:
+        return "unknown"
+    try:
+        parsed = parse_user_agent(user_agent)
+    except Exception:
+        return "unknown"
+    if parsed.is_tablet:
+        return "tablet"
+    if parsed.is_mobile:
+        return "mobile"
+    if parsed.is_pc:
+        return "desktop"
+    if parsed.is_bot:
+        return "bot"
+    return "unknown"
 
 
 async def _forward_webhook_task(url: str, headers: dict, payload: dict, submission_id: int):
@@ -148,6 +167,8 @@ def submit(form_id: str, submission: SubmissionCreate, request: Request, backgro
 
     from ..services.geo import extract_client_ip, get_geolocation
     ip_address = extract_client_ip(request)
+    user_agent = request.headers.get('user-agent', '')
+    device_type = detect_device_type(user_agent)
 
     # --- Idempotency handling ---
     # Clients may provide an `Idempotency-Key` header to ensure retries do not create duplicates.
@@ -174,7 +195,9 @@ def submit(form_id: str, submission: SubmissionCreate, request: Request, backgro
                             "form_id": str(existing_submission.form_id),
                             "data": existing_submission.data,
                             "ip_address": existing_submission.ip_address,
-                            "created_at": existing_submission.created_at
+                            "created_at": existing_submission.created_at,
+                            "device_type": getattr(existing_submission, 'device_type', None),
+                            "user_agent": getattr(existing_submission, 'user_agent', None)
                         }
         except Exception:
             # If anything goes wrong with idempotency lookup, continue normal flow
@@ -236,7 +259,9 @@ def submit(form_id: str, submission: SubmissionCreate, request: Request, backgro
         location_source=location_source,
         latitude=latitude,
         longitude=longitude,
-        threat_score=len(risk_flags) if risk_flags else None
+        threat_score=len(risk_flags) if risk_flags else None,
+        device_type=device_type,
+        user_agent=user_agent
     )
     try:
         db.add(db_submission)
@@ -316,7 +341,9 @@ def submit(form_id: str, submission: SubmissionCreate, request: Request, backgro
                             "form_id": str(existing_submission.form_id),
                             "data": existing_submission.data,
                             "ip_address": existing_submission.ip_address,
-                            "created_at": existing_submission.created_at
+                            "created_at": existing_submission.created_at,
+                            "device_type": getattr(existing_submission, 'device_type', None),
+                            "user_agent": getattr(existing_submission, 'user_agent', None)
                         }
             except Exception:
                 # If anything fails here, log and continue returning the current submission
@@ -378,6 +405,8 @@ def submit(form_id: str, submission: SubmissionCreate, request: Request, backgro
         "latitude": db_submission.latitude,
         "longitude": db_submission.longitude,
         "threat_score": db_submission.threat_score,
+        "device_type": db_submission.device_type,
+        "user_agent": db_submission.user_agent,
     }
     return response_data
 

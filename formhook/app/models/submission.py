@@ -1,7 +1,7 @@
 """
 Submission model definition.
 """
-from sqlalchemy import Column, Integer, DateTime, ForeignKey, String
+from sqlalchemy import Column, Integer, DateTime, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.sql import func
 from ..core.database import Base
@@ -19,4 +19,6 @@ class Submission(Base):
     threat_score = Column(Integer, nullable=True)
     latitude = Column(String, nullable=True)
     longitude = Column(String, nullable=True)
+    device_type = Column(String(32), nullable=True)
+    user_agent = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
