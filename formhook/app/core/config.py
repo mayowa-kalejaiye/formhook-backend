@@ -47,5 +47,6 @@ class Settings(BaseSettings):
 
     ENABLE_TRIAL_REMINDER_TASK: bool = os.getenv("ENABLE_TRIAL_REMINDER_TASK", "true").lower() not in {"false", "0", "no"}
     TRIAL_REMINDER_INTERVAL_MINUTES: int = int(os.getenv("TRIAL_REMINDER_INTERVAL_MINUTES", "60"))
+    REQUIRE_EMAIL_VERIFICATION: bool = os.getenv("REQUIRE_EMAIL_VERIFICATION", "true").lower() not in {"false", "0", "no"}
 
 settings = Settings()

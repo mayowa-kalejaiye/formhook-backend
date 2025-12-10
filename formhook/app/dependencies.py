@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from .core.security import decode_access_token
 from .models.user import User
 from .core.database import SessionLocal
+from .core.config import settings
 
 # Update tokenUrl to match our new standard OAuth2 endpoint
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
@@ -73,12 +74,11 @@ def get_current_user(token: str = Depends(get_token_from_request), db: Session =
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        # Temporarily bypass email verification check
-        # if not user.is_verified:
-        #     raise HTTPException(
-        #         status_code=status.HTTP_403_FORBIDDEN,
-        #         detail="Email not verified. Please verify your email before accessing this resource."
-        #     )
+        if settings.REQUIRE_EMAIL_VERIFICATION and not user.is_verified:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Email not verified. Please verify your email before accessing this resource."
+            )
         
         return user
     except HTTPException:

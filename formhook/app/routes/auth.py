@@ -3,6 +3,7 @@ Auth routes: signup, login, and email verification.
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Form, Response
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from ..schemas.user import UserCreate, UserOut
 from ..models.user import User
 from ..core.database import SessionLocal
@@ -16,6 +17,10 @@ from fastapi.responses import JSONResponse
 from ..core.config import settings
 
 router = APIRouter()
+
+
+def normalize_email(value: str) -> str:
+    return value.strip().lower()
 
 # Dependency to get DB session
 def get_db():
@@ -63,23 +68,34 @@ async def signup(
                     detail="Invalid request format. Please provide email and password."
                 )
         
+        if not user_email or not user_password:
+            raise HTTPException(
+                status_code=422,
+                detail="Missing required fields: email and password"
+            )
+
         # Check if email already exists
-        existing_user = db.query(User).filter(User.email == user_email).first()
+        user_email = normalize_email(user_email)
+
+        existing_user = db.query(User).filter(func.lower(User.email) == user_email).first()
         if existing_user:
             raise HTTPException(status_code=400, detail="Email address already registered. Please use a different email or log in.")
         
         # Create user
         db_user = User(email=user_email, password_hash=hash_password(user_password))
+        if not settings.REQUIRE_EMAIL_VERIFICATION:
+            db_user.is_verified = True
         db.add(db_user)
         db.commit()
         db.refresh(db_user)
         
         # Send verification email
-        try:
-            send_verification_email(db, db_user)
-        except Exception as e:
-            # Log the error but don't fail the signup
-            print(f"Error sending verification email: {e}")
+        if settings.REQUIRE_EMAIL_VERIFICATION:
+            try:
+                send_verification_email(db, db_user)
+            except Exception as e:
+                # Log the error but don't fail the signup
+                print(f"Error sending verification email: {e}")
         
         return db_user
     except HTTPException:
@@ -142,21 +158,26 @@ async def login(
                     detail="Invalid request format. Please provide email and password."
                 )
         
+        user_email = normalize_email(user_email)
+
+        if not user_email or not user_password:
+            raise HTTPException(
+                status_code=422,
+                detail="Missing required fields: email and password"
+            )
+
         print(f"Login attempt for email: {user_email}")
         
         # Find the user
-        user = db.query(User).filter(User.email == user_email).first()
+        user = db.query(User).filter(func.lower(User.email) == user_email).first()
         if not user or not verify_password(user_password, user.password_hash):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
         
-        # Check if email is verified - temporarily bypassed
-        if not user.is_verified:
-            # For debugging, let's temporarily bypass this
-            # raise HTTPException(
-            #     status_code=401,
-            #     detail="Email not verified. Please check your inbox for a verification link."
-            # )
-            pass
+        if settings.REQUIRE_EMAIL_VERIFICATION and not user.is_verified:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Email not verified. Please check your inbox for a verification link."
+            )
         
         token = create_access_token({"sub": str(user.id), "email": user.email})
         # Prepare user payload
@@ -193,18 +214,16 @@ class EmailLoginRequest(BaseModel):
 def email_login(request: EmailLoginRequest, db: Session = Depends(get_db)):
     """Alternative login endpoint accepting 'email' instead of 'username'."""
     try:
-        user = db.query(User).filter(User.email == request.email).first()
+        normalized_email = normalize_email(request.email)
+        user = db.query(User).filter(func.lower(User.email) == normalized_email).first()
         if not user or not verify_password(request.password, user.password_hash):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
         
-        # Check if email is verified
-        if not user.is_verified:
-            # For debugging, let's temporarily bypass this
-            # raise HTTPException(
-            #     status_code=401,
-            #     detail="Email not verified. Please check your inbox for a verification link."
-            # )
-            pass
+        if settings.REQUIRE_EMAIL_VERIFICATION and not user.is_verified:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Email not verified. Please check your inbox for a verification link."
+            )
         
         token = create_access_token({"sub": str(user.id), "email": user.email})
         user_data = {"id": user.id, "email": user.email, "is_verified": user.is_verified}
@@ -246,7 +265,8 @@ def request_email_verification(
 ):
     """Request a new verification email."""
     try:
-        user = db.query(User).filter(User.email == req.email).first()
+        normalized_email = normalize_email(req.email)
+        user = db.query(User).filter(func.lower(User.email) == normalized_email).first()
         
         if not user:
             # Don't reveal that the email doesn't exist
@@ -306,7 +326,8 @@ def logout(response: Response):
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     """Standard OAuth2 token endpoint."""
     try:
-        user = db.query(User).filter(User.email == form_data.username).first()
+        normalized_email = normalize_email(form_data.username)
+        user = db.query(User).filter(func.lower(User.email) == normalized_email).first()
         if not user or not verify_password(form_data.password, user.password_hash):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -314,14 +335,12 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        # Check if email is verified - temporarily bypassed
-        if not user.is_verified:
-            # For debugging, let's temporarily bypass this
-            # raise HTTPException(
-            #     status_code=401,
-            #     detail="Email not verified. Please check your inbox for a verification link."
-            # )
-            pass
+        if settings.REQUIRE_EMAIL_VERIFICATION and not user.is_verified:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Email not verified. Please check your inbox for a verification link.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         
         token = create_access_token({"sub": str(user.id), "email": user.email})
         user_data = {"id": user.id, "email": user.email, "is_verified": user.is_verified}
