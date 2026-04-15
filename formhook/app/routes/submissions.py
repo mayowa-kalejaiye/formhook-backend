@@ -34,13 +34,18 @@ from ..core.utils import now_utc
 import csv
 from io import StringIO
 from ..dependencies import get_db, get_current_user
-from user_agents import parse as parse_user_agent
+try:
+    from user_agents import parse as parse_user_agent
+except Exception:  # pragma: no cover - optional dependency fallback
+    parse_user_agent = None
 
 router = APIRouter()
 
 
 def detect_device_type(user_agent: str) -> str:
     if not user_agent:
+        return "unknown"
+    if parse_user_agent is None:
         return "unknown"
     try:
         parsed = parse_user_agent(user_agent)
