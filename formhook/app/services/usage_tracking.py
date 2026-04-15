@@ -87,17 +87,13 @@ class UsageTrackingService:
         tier = self._resolve_pricing_tier(user.subscription_tier)
         plan = PricingService.get_plan(tier)
         
-        # Check if user is over their monthly limit
+        # Enforce a hard submissions cap for the free plan.
         if submissions_used >= plan.monthly_submissions:
-            overage_cost = PricingService.calculate_overage_cost(
-                tier,
-                submissions_used + 1
+            return (
+                False,
+                f"Monthly submission limit reached ({plan.monthly_submissions}). "
+                "Please wait for your usage period to reset."
             )
-            warning = f"You're over your monthly limit. Additional submissions will incur overage charges."
-            if overage_cost > 0:
-                cost_per_submission = PricingService.calculate_overage_cost(tier, 1)
-                warning += f" Next submission will cost {PricingService.format_price(cost_per_submission)}."
-            return True, warning
         
         return True, None
     
@@ -118,7 +114,7 @@ class UsageTrackingService:
             ).scalar() or 0
             
             if current_forms >= plan.max_forms:
-                return False, f"Form limit reached ({plan.max_forms}). Please upgrade to create more forms."
+                return False, f"Form limit reached ({plan.max_forms})."
         
         return True, None
     
@@ -171,44 +167,7 @@ class UsageTrackingService:
         }
     
     def get_tier_recommendation(self, user: User) -> Optional[Dict[str, Any]]:
-        """Analyze usage and recommend optimal pricing tier."""
-        usage = self.get_user_current_usage(user)
-        current_tier = self._resolve_pricing_tier(user.subscription_tier)
-
-        # If user is consistently under 50% usage, suggest downgrade when a lower tier exists
-        if usage["usage_percentage"] < 50 and current_tier != PricingTier.STARTER:
-            tiers = [PricingTier.STARTER, PricingTier.PROFESSIONAL, PricingTier.BUSINESS, PricingTier.ENTERPRISE]
-            current_index = tiers.index(current_tier)
-            lower_tiers = tiers[:current_index]
-            for tier in reversed(lower_tiers):
-                plan = PricingService.get_plan(tier)
-                if plan.monthly_submissions >= usage["submissions_used"]:
-                    monthly_savings = PricingService.get_plan(current_tier).price_monthly - plan.price_monthly
-                    return {
-                        "type": "downgrade",
-                        "recommended_tier": tier.value,
-                        "reason": f"Your usage is only {usage['usage_percentage']:.1f}% of your current plan",
-                        "monthly_savings": PricingService.format_price(monthly_savings),
-                        "plan_name": plan.name
-                    }
-        
-        # If user is over 80% usage or over limit, suggest upgrade
-        if usage["usage_percentage"] > 80 or usage["is_over_limit"]:
-            upgrade_options = PricingService.get_upgrade_suggestions(current_tier)
-            if upgrade_options:
-                next_tier = upgrade_options[0]
-                next_plan = PricingService.get_plan(next_tier)
-                monthly_cost = next_plan.price_monthly - PricingService.get_plan(current_tier).price_monthly
-                
-                return {
-                    "type": "upgrade",
-                    "recommended_tier": next_tier.value,
-                    "reason": f"You're using {usage['usage_percentage']:.1f}% of your current plan",
-                    "monthly_cost": PricingService.format_price(monthly_cost),
-                    "plan_name": next_plan.name,
-                    "additional_submissions": next_plan.monthly_submissions - PricingService.get_plan(current_tier).monthly_submissions
-                }
-        
+        """Tier recommendations are disabled in the free-only model."""
         return None
     
     def _calculate_usage_efficiency(self, user: User) -> float:
@@ -224,11 +183,7 @@ class UsageTrackingService:
         """Ensure subscription tier, billing cycle, and usage counters have sane defaults."""
         updated = False
 
-        tier_value = (user.subscription_tier or PricingTier.STARTER.value).lower()
-        try:
-            resolved_tier = PricingTier(tier_value)
-        except ValueError:
-            resolved_tier = PricingTier.STARTER
+        resolved_tier = PricingTier.STARTER
         if user.subscription_tier != resolved_tier.value:
             user.subscription_tier = resolved_tier.value
             updated = True
@@ -253,13 +208,8 @@ class UsageTrackingService:
             self.db.refresh(user)
 
     def _resolve_pricing_tier(self, tier_value: Optional[str]) -> PricingTier:
-        """Normalize arbitrary tier strings to a valid PricingTier (default to STARTER)."""
-        if not tier_value:
-            return PricingTier.STARTER
-        try:
-            return PricingTier(tier_value.lower())
-        except ValueError:
-            return PricingTier.STARTER
+        """All accounts run on STARTER while billing is disabled."""
+        return PricingTier.STARTER
 
     def is_admin_user(self, user: User) -> bool:
         """Public helper so other services can determine admin privileges."""
@@ -364,28 +314,13 @@ class PricingValidationService:
         can_submit, message = self.usage_service.can_user_submit_form(user)
         
         if not can_submit:
-            tier = self._resolve_user_tier(user)
-            upgrade_suggestions = PricingService.get_upgrade_suggestions(tier)
-            upgrade_info = {}
-            
-            if upgrade_suggestions:
-                next_tier = upgrade_suggestions[0]
-                next_plan = PricingService.get_plan(next_tier)
-                upgrade_info = {
-                    "upgrade_tier": next_tier.value,
-                    "upgrade_name": next_plan.name,
-                    "upgrade_price": PricingService.format_price(next_plan.price_monthly),
-                    "upgrade_submissions": next_plan.monthly_submissions
-                }
-            
             raise HTTPException(
-                status_code=402,  # Payment Required
+                status_code=429,
                 detail={
                     "error": "Usage limit exceeded",
                     "message": message,
                     "current_tier": user.subscription_tier,
-                    "usage_info": self.usage_service.get_user_current_usage(user),
-                    "upgrade_options": upgrade_info
+                    "usage_info": self.usage_service.get_user_current_usage(user)
                 }
             )
     
@@ -397,27 +332,12 @@ class PricingValidationService:
         can_create, message = self.usage_service.can_user_create_form(user)
         
         if not can_create:
-            tier = self._resolve_user_tier(user)
-            upgrade_suggestions = PricingService.get_upgrade_suggestions(tier)
-            upgrade_info = {}
-            
-            if upgrade_suggestions:
-                next_tier = upgrade_suggestions[0]
-                next_plan = PricingService.get_plan(next_tier)
-                upgrade_info = {
-                    "upgrade_tier": next_tier.value,
-                    "upgrade_name": next_plan.name,
-                    "upgrade_price": PricingService.format_price(next_plan.price_monthly),
-                    "upgrade_forms": "Unlimited" if next_plan.max_forms is None else next_plan.max_forms
-                }
-            
             raise HTTPException(
-                status_code=402,  # Payment Required
+                status_code=429,
                 detail={
                     "error": "Form limit exceeded",
                     "message": message,
-                    "current_tier": user.subscription_tier,
-                    "upgrade_options": upgrade_info
+                    "current_tier": user.subscription_tier
                 }
             )
     
@@ -447,44 +367,24 @@ class PricingValidationService:
                 }
             
             raise HTTPException(
-                status_code=402,  # Payment Required
+                status_code=403,
                 detail={
                     "error": "Feature not available",
                     "message": f"The '{feature}' feature is not available on your current plan ({plan.name})",
                     "current_tier": user.subscription_tier,
-                    "feature": feature,
-                    "upgrade_required": upgrade_info
+                    "feature": feature
                 }
             )
 
     def _ensure_subscription_active(self, user: User) -> None:
         if self.usage_service.is_admin_user(user):
             return
-        if user.subscription_status == "trialing":
-            if user.trial_ends_at and now_utc() >= user.trial_ends_at:
-                raise HTTPException(
-                    status_code=402,
-                    detail={
-                        "error": "Trial expired",
-                        "message": (
-                            f"Your 3-day Starter trial expired on {user.trial_ends_at.isoformat()} and submissions "
-                            "are paused until you select a paid plan."
-                        ),
-                        "trial_ended_at": user.trial_ends_at.isoformat(),
-                        "next_steps": [
-                            "Select a paid subscription tier",
-                            "Update billing details to resume submissions"
-                        ]
-                    }
-                )
-            return
-
-        if user.subscription_status in {"cancelled", "suspended"}:
+        if user.subscription_status == "suspended":
             raise HTTPException(
-                status_code=402,
+                status_code=403,
                 detail={
                     "error": "Subscription inactive",
-                    "message": "Your subscription is not active. Update billing to resume submissions.",
+                    "message": "This account is suspended.",
                     "current_status": user.subscription_status
                 }
             )

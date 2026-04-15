@@ -115,7 +115,7 @@ class TrialReminderService:
         self._last_send_ts = time.monotonic()
 
     def _build_email_copy(self, user: User, trial_end, now, day: int) -> tuple[str, str]:
-        billing_url = f"{settings.FRONTEND_URL.rstrip('/')}/billing"
+        dashboard_url = f"{settings.FRONTEND_URL.rstrip('/')}/dashboard"
         trial_end_display = trial_end.strftime("%B %d, %Y")
         hours_left = max(int((trial_end - now).total_seconds() // 3600), 0)
         local_part = user.email.split('@')[0] if '@' in user.email else user.email
@@ -129,7 +129,7 @@ class TrialReminderService:
             subject = "Your FormHook trial ends tomorrow"
             intro = "You're entering the final stretch of your FormHook trial."
             urgency = (
-                "Your forms will pause once the trial ends unless you pick a paid plan. "
+                "When the trial ends, your account will continue on the free plan with standard usage limits. "
                 f"Your current trial is scheduled to end on {trial_end_display}."
             )
 
@@ -142,10 +142,10 @@ class TrialReminderService:
                 <li>Instant Slack-ready webhooks with retries</li>
                 <li>Submission analytics and geolocation insights</li>
             </ul>
-            <p>Upgrade now to keep submissions flowing past the trial window.</p>
+            <p>Review your current usage so you can stay within the free plan limits.</p>
             <p style=\"margin:24px 0\">
-                <a href=\"{billing_url}\" style=\"background:#111;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;\">
-                    Choose a plan
+                <a href="{dashboard_url}" style="background:#111;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;">
+                    Open dashboard
                 </a>
             </p>
             <p>Need help deciding? Just reply to this email and we'll get you sorted.</p>

@@ -141,7 +141,7 @@ def submit(form_id: str, submission: SubmissionCreate, request: Request, backgro
         validation_service.validate_form_submission(form_owner)
     except HTTPException as usage_error:
         # Return a more user-friendly error for public submissions
-        if usage_error.status_code == 402:  # Payment Required
+        if usage_error.status_code in {402, 429}:
             raise HTTPException(
                 status_code=503,  # Service Unavailable - more appropriate for public endpoint
                 detail={

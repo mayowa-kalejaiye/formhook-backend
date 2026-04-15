@@ -60,11 +60,11 @@ class PricingPlan:
 PRICING_PLANS: Dict[PricingTier, PricingPlan] = {
     PricingTier.STARTER: PricingPlan(
         tier=PricingTier.STARTER,
-        name="Starter",
-        price_monthly=900,  # $9.00
-        price_yearly=9000,  # $90.00 (17% discount)
+        name="Free",
+        price_monthly=0,
+        price_yearly=0,
         monthly_submissions=1000,
-        max_forms=None,  # Unlimited
+        max_forms=25,
         max_team_members=1,
         file_upload_size_mb=5,
         api_rate_limit_per_minute=100,
@@ -80,97 +80,6 @@ PRICING_PLANS: Dict[PricingTier, PricingPlan] = {
         sla_uptime=0.99,  # 99%
         remove_branding=True,
         white_label=False
-    ),
-    
-    PricingTier.PROFESSIONAL: PricingPlan(
-        tier=PricingTier.PROFESSIONAL,
-        name="Professional",
-        price_monthly=2900,  # $29.00
-        price_yearly=29000,  # $290.00 (17% discount)
-        monthly_submissions=10000,
-        max_forms=None,  # Unlimited
-        max_team_members=5,
-        file_upload_size_mb=50,
-        api_rate_limit_per_minute=500,
-        features=[
-            "advanced_analytics",
-            "email_notifications",
-            "api_access",
-            "priority_email_support",
-            "webhooks",
-            "ab_testing",
-            "advanced_integrations",
-            "custom_domains",
-            "remove_branding"
-        ],
-        support_level="priority_email",
-        sla_uptime=0.995,  # 99.5%
-        remove_branding=True,
-        white_label=False
-    ),
-    
-    PricingTier.BUSINESS: PricingPlan(
-        tier=PricingTier.BUSINESS,
-        name="Business",
-        price_monthly=9900,  # $99.00
-        price_yearly=99000,  # $990.00 (17% discount)
-        monthly_submissions=100000,
-        max_forms=None,  # Unlimited
-        max_team_members=25,
-        file_upload_size_mb=500,
-        api_rate_limit_per_minute=2000,
-        features=[
-            "advanced_analytics",
-            "email_notifications",
-            "api_access",
-            "phone_support",
-            "webhooks",
-            "ab_testing",
-            "advanced_integrations",
-            "custom_domains",
-            "white_label",
-            "custom_fields",
-            "priority_processing",
-            "remove_branding"
-        ],
-        support_level="phone",
-        sla_uptime=0.999,  # 99.9%
-        remove_branding=True,
-        white_label=True
-    ),
-    
-    PricingTier.ENTERPRISE: PricingPlan(
-        tier=PricingTier.ENTERPRISE,
-        name="Enterprise",
-        price_monthly=19900,  # $199.00 (starting price)
-        price_yearly=199000,  # $1,990.00 (17% discount)
-        monthly_submissions=1000000,
-        max_forms=None,  # Unlimited
-        max_team_members=100,  # Can be increased with custom pricing
-        file_upload_size_mb=2000,  # 2GB
-        api_rate_limit_per_minute=10000,
-        features=[
-            "enterprise_analytics",
-            "email_notifications",
-            "api_access",
-            "dedicated_support",
-            "webhooks",
-            "ab_testing",
-            "enterprise_integrations",
-            "custom_domains",
-            "white_label",
-            "custom_fields",
-            "priority_processing",
-            "sso_integration",
-            "custom_integrations",
-            "dedicated_infrastructure",
-            "professional_services",
-            "remove_branding"
-        ],
-        support_level="dedicated",
-        sla_uptime=0.9995,  # 99.95%
-        remove_branding=True,
-        white_label=True
     )
 }
 
@@ -181,9 +90,7 @@ class PricingService:
     @staticmethod
     def get_plan(tier: PricingTier) -> PricingPlan:
         """Get pricing plan by tier."""
-        if tier not in PRICING_PLANS:
-            raise ValueError(f"Invalid pricing tier: {tier}")
-        return PRICING_PLANS[tier]
+        return PRICING_PLANS.get(tier, PRICING_PLANS[PricingTier.STARTER])
     
     @staticmethod
     def get_all_plans() -> Dict[PricingTier, PricingPlan]:
@@ -219,40 +126,13 @@ class PricingService:
     
     @staticmethod
     def get_upgrade_suggestions(current_tier: PricingTier) -> List[PricingTier]:
-        """Get suggested upgrade tiers for a given tier."""
-        tier_order = [
-            PricingTier.STARTER, 
-            PricingTier.PROFESSIONAL,
-            PricingTier.BUSINESS,
-            PricingTier.ENTERPRISE
-        ]
-        
-        try:
-            current_index = tier_order.index(current_tier)
-            return tier_order[current_index + 1:]
-        except (ValueError, IndexError):
-            return []
+        """Upgrade paths are disabled while billing is paused."""
+        return []
     
     @staticmethod
     def calculate_overage_cost(tier: PricingTier, submissions_used: int) -> int:
-        """Calculate overage cost in cents for exceeding monthly limits."""
-        plan = PricingService.get_plan(tier)
-        
-        if submissions_used <= plan.monthly_submissions:
-            return 0
-        
-        overage = submissions_used - plan.monthly_submissions
-        
-        # Overage pricing per submission (in cents)
-        overage_rates = {
-            PricingTier.STARTER: 5,  # $0.05 per submission
-            PricingTier.PROFESSIONAL: 3,  # $0.03 per submission
-            PricingTier.BUSINESS: 1,  # $0.01 per submission
-            PricingTier.ENTERPRISE: 1  # $0.01 per submission (negotiated rates)
-        }
-        
-        rate = overage_rates.get(tier, 5)  # Default to $0.05
-        return overage * rate
+        """Overage billing is disabled while running a free-only model."""
+        return 0
     
     @staticmethod
     def format_price(price_cents: int) -> str:

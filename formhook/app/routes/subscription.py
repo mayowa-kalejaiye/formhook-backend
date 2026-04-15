@@ -136,43 +136,16 @@ def initiate_subscription_upgrade(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Initiate subscription upgrade process."""
-    # Validate target tier
-    try:
-        target_tier = PricingTier(upgrade_request.target_tier)
-    except ValueError:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Invalid pricing tier: {upgrade_request.target_tier}"
-        )
-    
-    current_tier = PricingTier(current_user.subscription_tier)
-    
-    # Validate upgrade path
-    upgrade_suggestions = PricingService.get_upgrade_suggestions(current_tier)
-    if target_tier not in upgrade_suggestions:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid upgrade path from {current_tier.value} to {target_tier.value}"
-        )
-    
-    target_plan = PricingService.get_plan(target_tier)
-    
-    # For now, return upgrade information (Stripe integration would go here)
+    """Billing upgrades are disabled while running free-only access."""
     return {
-        "message": "Upgrade initiated",
+        "message": "Billing is currently disabled",
         "current_tier": current_user.subscription_tier,
-        "target_tier": target_tier.value,
-        "target_plan": target_plan.name,
-        "price_change": target_plan.price_monthly - PricingService.get_plan(current_tier).price_monthly,
-        "billing_cycle": upgrade_request.billing_cycle,
-        "effective_immediately": True,
+        "requested_tier": upgrade_request.target_tier,
+        "effective_immediately": False,
         "next_steps": [
-            "Payment processing will be handled by Stripe",
-            "Subscription will be upgraded immediately upon successful payment",
-            "New limits will take effect immediately"
+            "All users are currently on the free plan",
+            "Usage limits remain active"
         ]
-        # TODO: Integrate with Stripe for actual payment processing
     }
 
 
@@ -182,56 +155,16 @@ def initiate_subscription_downgrade(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Initiate subscription downgrade process."""
-    # Validate target tier
-    try:
-        target_tier = PricingTier(downgrade_request.target_tier)
-    except ValueError:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Invalid pricing tier: {downgrade_request.target_tier}"
-        )
-    
-    current_tier = PricingTier(current_user.subscription_tier)
-    target_plan = PricingService.get_plan(target_tier)
-    current_plan = PricingService.get_plan(current_tier)
-    
-    # Check if downgrade is valid (target tier should have lower price)
-    if target_plan.price_monthly >= current_plan.price_monthly:
-        raise HTTPException(
-            status_code=400,
-            detail="Target tier is not a downgrade from current tier"
-        )
-    
-    # Check if current usage fits in target tier
-    usage_service = UsageTrackingService(db)
-    usage_info = usage_service.get_user_current_usage(current_user)
-    
-    if usage_info["submissions_used"] > target_plan.monthly_submissions:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "error": "Usage exceeds target tier limits",
-                "current_usage": usage_info["submissions_used"],
-                "target_limit": target_plan.monthly_submissions,
-                "message": f"Your current usage ({usage_info['submissions_used']} submissions) exceeds the limit for {target_plan.name} ({target_plan.monthly_submissions} submissions)"
-            }
-        )
-    
+    """Billing downgrades are disabled while running free-only access."""
     return {
-        "message": "Downgrade initiated",
+        "message": "Billing is currently disabled",
         "current_tier": current_user.subscription_tier,
-        "target_tier": target_tier.value,
-        "target_plan": target_plan.name,
-        "savings": current_plan.price_monthly - target_plan.price_monthly,
-        "billing_cycle": downgrade_request.billing_cycle,
-        "effective_date": "End of current billing period",
+        "requested_tier": downgrade_request.target_tier,
+        "effective_date": "Not applicable",
         "next_steps": [
-            "Downgrade will take effect at the end of your current billing period",
-            "You'll retain current features until the effective date",
-            "Billing will be adjusted automatically"
+            "All users are currently on the free plan",
+            "Usage limits remain active"
         ]
-        # TODO: Integrate with Stripe for actual subscription modification
     }
 
 
@@ -240,27 +173,19 @@ def cancel_subscription(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Cancel current subscription."""
-    if current_user.subscription_tier == PricingTier.FREE.value:
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot cancel free tier subscription"
-        )
-    
-    # Set subscription status to cancelled but keep active until period end
+    """Mark subscription as cancelled (billing disabled in free-only mode)."""
     current_user.subscription_status = "cancelled"
     db.commit()
     
     return {
-        "message": "Subscription cancelled",
+        "message": "Subscription status updated",
         "current_tier": current_user.subscription_tier,
         "status": "cancelled",
         "active_until": current_user.subscription_end_date,
-        "downgrade_to": "free",
+        "downgrade_to": "starter",
         "next_steps": [
-            "Your subscription will remain active until the end of the current billing period",
-            "You'll be downgraded to the free tier after expiration",
-            "All data will be preserved"
+            "Billing actions are disabled",
+            "Usage limits still apply on the free plan"
         ]
     }
 
