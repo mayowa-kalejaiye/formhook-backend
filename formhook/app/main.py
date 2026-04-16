@@ -28,16 +28,25 @@ from .tasks.trial_reminder_scheduler import run_trial_reminder_loop
 app = FastAPI(title="FormHook API", description="Plug-and-play backend for HTML forms.")
 
 # CORS Middleware - Update to explicitly allow the frontend domain
+# Handle ALLOWED_ORIGINS carefully: if it's ["*"], allow all. Otherwise, merge with specific domains.
+cors_origins = [
+    settings.FRONTEND_URL,
+    "https://formhook-frontend.vercel.app",
+    "https://formhookapp.com",
+    "https://formhookapp.vercel.app",  # Add Vercel deployment domain
+    "https://api.formhookapp.com",
+    "http://localhost:3000"
+]
+
+# If ALLOWED_ORIGINS is already ["*"], use that. Otherwise merge.
+if settings.ALLOWED_ORIGINS == ["*"]:
+    cors_origins = ["*"]
+else:
+    cors_origins = list(set(cors_origins + (settings.ALLOWED_ORIGINS if isinstance(settings.ALLOWED_ORIGINS, list) else [])))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=(
-        [settings.FRONTEND_URL,
-         "https://formhook-frontend.vercel.app",
-         "https://formhookapp.com",
-         "https://api.formhookapp.com",
-         "http://localhost:3000"] +
-        (settings.ALLOWED_ORIGINS if isinstance(settings.ALLOWED_ORIGINS, list) else [])
-    ),
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
