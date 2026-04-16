@@ -3,6 +3,7 @@ Dashboard summary endpoint for FormHook.
 """
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+from sqlalchemy import func, inspect, select
 from ..dependencies import get_db, get_current_user
 from ..models import form as form_model, submission as submission_model, webhook_delivery as webhook_model
 from ..schemas.submission import SubmissionOut
@@ -11,6 +12,28 @@ from datetime import timedelta
 from ..core.utils import now_utc
 
 router = APIRouter()
+
+
+def _submission_select_columns(db: Session):
+    inspector = inspect(db.get_bind())
+    if not inspector.has_table("submissions"):
+        return []
+
+    existing = {column["name"] for column in inspector.get_columns("submissions")}
+    required = ["id", "form_id", "data", "ip_address", "created_at"]
+    optional = [
+        "country",
+        "region",
+        "city",
+        "location_source",
+        "latitude",
+        "longitude",
+        "threat_score",
+        "device_type",
+        "user_agent",
+    ]
+    column_names = required + [name for name in optional if name in existing]
+    return [submission_model.Submission.__table__.c[name] for name in column_names]
 
 @router.get("/dashboard/summary", tags=["Dashboard"])
 def dashboard_summary(
@@ -35,15 +58,17 @@ def dashboard_summary(
     total_forms = db.query(form_model.Form).filter(form_model.Form.user_id == current_user.id).count()
     # Total submissions
     form_ids = db.query(form_model.Form.id).filter(form_model.Form.user_id == current_user.id).subquery()
-    total_submissions = db.query(submission_model.Submission).filter(submission_model.Submission.form_id.in_(form_ids)).count()
+    total_submissions = db.query(func.count(submission_model.Submission.id)).filter(submission_model.Submission.form_id.in_(form_ids)).scalar() or 0
     # Recent activity
-    recent_submissions = (
-        db.query(submission_model.Submission)
-        .filter(submission_model.Submission.form_id.in_(form_ids))
-        .order_by(submission_model.Submission.created_at.desc())
-        .limit(5)
-        .all()
-    )
+    submission_columns = _submission_select_columns(db)
+    recent_submissions = []
+    if submission_columns:
+        recent_submissions = db.execute(
+            select(*submission_columns)
+            .where(submission_model.Submission.form_id.in_(form_ids))
+            .order_by(submission_model.Submission.created_at.desc())
+            .limit(5)
+        ).all()
     # Trend data (submissions per day)
     date_from = now_utc() - timedelta(days=days)
     trend = (
@@ -80,7 +105,7 @@ def dashboard_summary(
     summary = {
         "total_forms": total_forms,
         "total_submissions": total_submissions,
-        "recent_submissions": [SubmissionOut.from_orm(s) for s in recent_submissions],
+        "recent_submissions": [SubmissionOut(**dict(s._mapping)) for s in recent_submissions],
         "trend": trend_data,
         "webhook_stats": {
             "total": total_webhooks,

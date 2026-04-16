@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from fastapi.requests import Request as FastAPIRequest
 from ..core.config import settings
 from sqlalchemy.orm import Session
+from sqlalchemy import inspect, select
 
 from fastapi.security import OAuth2PasswordBearer
 from ..models.user import User
@@ -60,6 +61,35 @@ def detect_device_type(user_agent: str) -> str:
     if parsed.is_bot:
         return "bot"
     return "unknown"
+
+
+def _submission_select_columns(db: Session):
+    inspector = inspect(db.get_bind())
+    if not inspector.has_table("submissions"):
+        raise HTTPException(status_code=500, detail="Submissions table does not exist")
+
+    existing = {column["name"] for column in inspector.get_columns("submissions")}
+    required = ["id", "form_id", "data", "ip_address", "created_at"]
+    missing_required = [name for name in required if name not in existing]
+    if missing_required:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Submissions table is missing required columns: {', '.join(missing_required)}"
+        )
+
+    optional = [
+        "country",
+        "region",
+        "city",
+        "location_source",
+        "latitude",
+        "longitude",
+        "threat_score",
+        "device_type",
+        "user_agent",
+    ]
+    column_names = required + [name for name in optional if name in existing]
+    return [Submission.__table__.c[name] for name in column_names]
 
 
 async def _forward_webhook_task(url: str, headers: dict, payload: dict, submission_id: int):
@@ -453,22 +483,24 @@ def get_submissions(
     form = db.query(Form).filter(Form.id == form_id, Form.user_id == current_user.id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found or not authorized")
-    query = db.query(Submission).filter(Submission.form_id == form_id)
+    columns = _submission_select_columns(db)
+    query = select(*columns).where(Submission.form_id == form_id)
     if date_from:
         try:
             dt_from = datetime.fromisoformat(date_from)
-            query = query.filter(Submission.created_at >= dt_from)
+            query = query.where(Submission.created_at >= dt_from)
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid date_from format. Use ISO 8601.")
     if date_to:
         try:
             dt_to = datetime.fromisoformat(date_to)
-            query = query.filter(Submission.created_at <= dt_to)
+            query = query.where(Submission.created_at <= dt_to)
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid date_to format. Use ISO 8601.")
     if ip_address:
-        query = query.filter(Submission.ip_address == ip_address)
-    return query.order_by(Submission.created_at.desc()).offset(offset).limit(limit).all()
+        query = query.where(Submission.ip_address == ip_address)
+    rows = db.execute(query.order_by(Submission.created_at.desc()).offset(offset).limit(limit)).all()
+    return [SubmissionOut(**dict(row._mapping)) for row in rows]
 
 @router.get("/{form_id}/submissions/export")
 def export_submissions(form_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -476,14 +508,26 @@ def export_submissions(form_id: str, db: Session = Depends(get_db), current_user
     form = db.query(Form).filter(Form.id == form_id, Form.user_id == current_user.id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found or not authorized")
-    submissions = db.query(Submission).filter(Submission.form_id == form_id).all()
+    columns = _submission_select_columns(db)
+    submissions = db.execute(
+        select(*columns)
+        .where(Submission.form_id == form_id)
+        .order_by(Submission.created_at.desc())
+    ).all()
     if not submissions:
         raise HTTPException(status_code=404, detail="No submissions found")
     output = StringIO()
     writer = csv.writer(output)
     writer.writerow(["id", "form_id", "data", "ip_address", "created_at"])
     for s in submissions:
-        writer.writerow([s.id, s.form_id, s.data, s.ip_address, s.created_at])
+        row = s._mapping
+        writer.writerow([
+            row.get("id"),
+            row.get("form_id"),
+            row.get("data"),
+            row.get("ip_address"),
+            row.get("created_at"),
+        ])
     response = Response(content=output.getvalue(), media_type="text/csv")
     response.headers["Content-Disposition"] = f"attachment; filename=submissions_{form_id}.csv"
     return response
