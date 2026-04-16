@@ -30,52 +30,8 @@ class TrialReminderService:
 
     def send_due_reminders(self) -> Dict[str, int]:
         """Send reminder emails for all users whose trial reminders are due."""
-        now = now_utc()
-        stats = {"day2": 0, "day3": 0}
-
-        trial_users = (
-            self.db.query(User)
-            .filter(User.subscription_status == "trialing")
-            .filter(User.trial_ends_at.isnot(None))
-            .all()
-        )
-
-        dirty = False
-
-        for user in trial_users:
-            trial_end = user.trial_ends_at
-            if not trial_end:
-                continue
-
-            trial_start = trial_end - timedelta(days=self.TRIAL_LENGTH_DAYS)
-            metadata_source = user.subscription_metadata or {}
-            if not isinstance(metadata_source, dict):
-                metadata_source = {}
-            metadata = dict(metadata_source)
-            updated = False
-
-            if self._should_send(now, trial_start + timedelta(days=1), trial_end, metadata, self.DAY2_KEY):
-                if self._deliver_email(user, trial_end, now, day=2):
-                    metadata[self.DAY2_KEY] = now.isoformat()
-                    stats["day2"] += 1
-                    updated = True
-
-            if self._should_send(now, trial_start + timedelta(days=2), trial_end, metadata, self.DAY3_KEY):
-                if self._deliver_email(user, trial_end, now, day=3):
-                    metadata[self.DAY3_KEY] = now.isoformat()
-                    stats["day3"] += 1
-                    updated = True
-
-            if updated:
-                user.subscription_metadata = metadata
-                dirty = True
-
-        if dirty:
-            self.db.commit()
-        else:
-            self.db.expire_all()
-
-        return stats
+        # Free-only product: trial reminders are no longer sent.
+        return {"day2": 0, "day3": 0}
 
     def _should_send(
         self,

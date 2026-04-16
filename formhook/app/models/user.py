@@ -19,7 +19,7 @@ class User(Base):
     
     # Subscription and Pricing
     subscription_tier = Column(String, default="starter", nullable=False)  # PricingTier enum value
-    subscription_status = Column(String, default="trialing", nullable=False)  # trialing, active, cancelled, suspended
+    subscription_status = Column(String, default="active", nullable=False)  # active, cancelled, suspended
     subscription_start_date = Column(DateTime(timezone=True), server_default=func.now())
     subscription_end_date = Column(DateTime(timezone=True), nullable=True)
     billing_cycle = Column(String, default="monthly", nullable=False)  # monthly, yearly

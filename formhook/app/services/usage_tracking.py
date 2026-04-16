@@ -203,6 +203,14 @@ class UsageTrackingService:
             user.current_period_submissions = 0
             updated = True
 
+        if user.subscription_status in (None, "trialing", "trial_expired"):
+            user.subscription_status = "active"
+            updated = True
+
+        if user.subscription_status == "active" and user.trial_ends_at is not None:
+            user.trial_ends_at = None
+            updated = True
+
         if updated:
             self.db.commit()
             self.db.refresh(user)

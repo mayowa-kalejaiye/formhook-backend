@@ -83,13 +83,12 @@ async def signup(
         if existing_user:
             raise HTTPException(status_code=400, detail="Email address already registered. Please use a different email or log in.")
         
-        # Create user
-        trial_end = now_utc() + timedelta(days=3)
+        # Create user on the active free plan.
         db_user = User(
             email=user_email,
             password_hash=hash_password(user_password),
-            subscription_status="trialing",
-            trial_ends_at=trial_end
+            subscription_status="active",
+            trial_ends_at=None
         )
         if not settings.REQUIRE_EMAIL_VERIFICATION:
             db_user.is_verified = True
