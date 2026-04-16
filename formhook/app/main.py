@@ -11,7 +11,9 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
+from sqlalchemy import inspect, text
 from .core.config import settings
+from .core.database import engine
 from .routes import auth, forms, submissions, dashboard, analytics, subscription, notifications
 
 # Try to import push_notifications, but make it optional
@@ -65,6 +67,32 @@ app.state.limiter = limiter
 app.state.trial_reminder_task = None
 app.state.trial_reminder_stop = None
 
+
+def ensure_submission_metadata_columns() -> None:
+    inspector = inspect(engine)
+    if not inspector.has_table("submissions"):
+        return
+
+    existing_columns = {column["name"] for column in inspector.get_columns("submissions")}
+    missing_columns = []
+    statements = []
+
+    if "device_type" not in existing_columns:
+        missing_columns.append("device_type")
+        statements.append("ALTER TABLE submissions ADD COLUMN device_type VARCHAR(32)")
+    if "user_agent" not in existing_columns:
+        missing_columns.append("user_agent")
+        statements.append("ALTER TABLE submissions ADD COLUMN user_agent TEXT")
+
+    if not statements:
+        return
+
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+
+    logging.warning("Applied missing submission metadata columns: %s", ", ".join(missing_columns))
+
 @app.exception_handler(RateLimitExceeded)
 async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
     # Include a Retry-After header to help clients back off; default to 60s
@@ -81,6 +109,11 @@ app.add_middleware(SlowAPIMiddleware)
 
 @app.on_event("startup")
 async def start_background_tasks() -> None:
+    try:
+        ensure_submission_metadata_columns()
+    except Exception as exc:
+        logging.exception("Failed to ensure submission metadata columns: %s", exc)
+
     if not settings.ENABLE_TRIAL_REMINDER_TASK:
         return
     stop_event = asyncio.Event()
