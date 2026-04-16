@@ -48,17 +48,17 @@ def get_forms(db: Session = Depends(get_db), current_user: User = Depends(get_cu
         # Convert UUID to string for query
         form_id_str = str(form.id)
         
-        # Get submission counts
-        total_submissions = db.query(Submission).filter(Submission.form_id == form_id_str).count()
-        recent_submissions = db.query(Submission).filter(
+        # Get submission counts without loading the full Submission entity.
+        total_submissions = db.query(func.count(Submission.id)).filter(Submission.form_id == form_id_str).scalar() or 0
+        recent_submissions = db.query(func.count(Submission.id)).filter(
             Submission.form_id == form_id_str,
             Submission.created_at >= seven_days_ago
-        ).count()
-        
-        # Get last submission timestamp
-        last_submission = db.query(Submission).filter(
+        ).scalar() or 0
+
+        # Get last submission timestamp without selecting all Submission columns.
+        last_submission_at = db.query(Submission.created_at).filter(
             Submission.form_id == form_id_str
-        ).order_by(Submission.created_at.desc()).first()
+        ).order_by(Submission.created_at.desc()).scalar()
         
         # Create enhanced form object
         form_dict = {
@@ -77,7 +77,7 @@ def get_forms(db: Session = Depends(get_db), current_user: User = Depends(get_cu
             "require_token": bool(form.require_token),
             "submission_count": total_submissions,
             "recent_submissions": recent_submissions,
-            "last_submission_at": last_submission.created_at if last_submission else None,
+            "last_submission_at": last_submission_at,
             "status": "active"  # Default status, can be enhanced later
         }
         
@@ -143,17 +143,17 @@ def get_form(form_id: str, db: Session = Depends(get_db), current_user: User = D
     seven_days_ago = now_utc() - timedelta(days=7)
     form_id_str = str(form.id)
     
-    # Get submission counts
-    total_submissions = db.query(Submission).filter(Submission.form_id == form_id_str).count()
-    recent_submissions = db.query(Submission).filter(
+    # Get submission counts without loading the full Submission entity.
+    total_submissions = db.query(func.count(Submission.id)).filter(Submission.form_id == form_id_str).scalar() or 0
+    recent_submissions = db.query(func.count(Submission.id)).filter(
         Submission.form_id == form_id_str,
         Submission.created_at >= seven_days_ago
-    ).count()
-    
-    # Get last submission timestamp
-    last_submission = db.query(Submission).filter(
+    ).scalar() or 0
+
+    # Get last submission timestamp without selecting all Submission columns.
+    last_submission_at = db.query(Submission.created_at).filter(
         Submission.form_id == form_id_str
-    ).order_by(Submission.created_at.desc()).first()
+    ).order_by(Submission.created_at.desc()).scalar()
     
     # Create enhanced form object
     form_dict = {
@@ -172,7 +172,7 @@ def get_form(form_id: str, db: Session = Depends(get_db), current_user: User = D
         "require_token": bool(form.require_token),
         "submission_count": total_submissions,
         "recent_submissions": recent_submissions,
-        "last_submission_at": last_submission.created_at if last_submission else None,
+        "last_submission_at": last_submission_at,
         "status": "active"  # Default status, can be enhanced later
     }
     
