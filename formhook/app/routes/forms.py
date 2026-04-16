@@ -2,7 +2,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
-from sqlalchemy import func, inspect
+from sqlalchemy import func, inspect, select
 from pydantic import EmailStr, ValidationError
 from typing import List
 from datetime import timedelta
@@ -24,6 +24,62 @@ from ..services.cache import cache
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+_OPTIONAL_FORM_DEFAULTS = {
+    "description": None,
+    "webhook_url": None,
+    "webhook_headers": None,
+    "webhook_secret": None,
+    "notification_email": None,
+    "redirect_url": None,
+    "success_message": None,
+    "fields": [],
+    "require_token": 0,
+}
+
+
+def _get_existing_form_columns(db: Session) -> set[str]:
+    inspector = inspect(db.get_bind())
+    if not inspector.has_table("forms"):
+        return set()
+    return {column["name"] for column in inspector.get_columns("forms")}
+
+
+def _load_forms_schema_safe(db: Session, user_id: int, form_id: str | None = None) -> list[dict]:
+    existing_columns = _get_existing_form_columns(db)
+    required_columns = ["id", "user_id", "name", "created_at"]
+
+    missing_required = [name for name in required_columns if name not in existing_columns]
+    if missing_required:
+        raise HTTPException(status_code=500, detail="Forms table is missing required columns.")
+
+    optional_columns = [name for name in _OPTIONAL_FORM_DEFAULTS.keys() if name in existing_columns]
+    selected_names = required_columns + optional_columns
+
+    table = Form.__table__
+    selected_columns = [table.c[name] for name in selected_names]
+    query = select(*selected_columns).where(table.c.user_id == user_id)
+    if form_id is not None:
+        query = query.where(table.c.id == form_id)
+
+    rows = db.execute(query).all()
+
+    normalized_forms = []
+    for row in rows:
+        row_map = dict(row._mapping)
+        normalized = {
+            "id": row_map.get("id"),
+            "user_id": row_map.get("user_id"),
+            "name": row_map.get("name"),
+            "created_at": row_map.get("created_at"),
+        }
+        for key, default in _OPTIONAL_FORM_DEFAULTS.items():
+            normalized[key] = row_map.get(key, default)
+        if normalized["fields"] is None:
+            normalized["fields"] = []
+        normalized_forms.append(normalized)
+
+    return normalized_forms
+
 """
 Form management routes.
 """
@@ -37,8 +93,8 @@ def get_forms(db: Session = Depends(get_db), current_user: User = Depends(get_cu
     if cached_forms is not None:
         return cached_forms
     
-    # Get all forms for the user
-    forms = db.query(Form).filter(Form.user_id == current_user.id).all()
+    # Get all forms for the user using schema-safe selection.
+    forms = _load_forms_schema_safe(db, current_user.id)
     
     # Build enhanced form list with metadata
     forms_with_metadata = []
@@ -46,7 +102,7 @@ def get_forms(db: Session = Depends(get_db), current_user: User = Depends(get_cu
     
     for form in forms:
         # Convert UUID to string for query
-        form_id_str = str(form.id)
+        form_id_str = str(form["id"])
         
         # Get submission counts without loading the full Submission entity.
         total_submissions = db.query(func.count(Submission.id)).filter(Submission.form_id == form_id_str).scalar() or 0
@@ -62,19 +118,19 @@ def get_forms(db: Session = Depends(get_db), current_user: User = Depends(get_cu
         
         # Create enhanced form object
         form_dict = {
-            "id": form.id,
-            "user_id": form.user_id,
-            "name": form.name,
-            "description": form.description,
-            "webhook_url": form.webhook_url,
-            "webhook_headers": form.webhook_headers,
-            "webhook_secret": form.webhook_secret,
-            "notification_email": form.notification_email,
-            "redirect_url": form.redirect_url,
-            "success_message": form.success_message,
-            "fields": form.fields or [],
-            "created_at": form.created_at,
-            "require_token": bool(form.require_token),
+            "id": form["id"],
+            "user_id": form["user_id"],
+            "name": form["name"],
+            "description": form["description"],
+            "webhook_url": form["webhook_url"],
+            "webhook_headers": form["webhook_headers"],
+            "webhook_secret": form["webhook_secret"],
+            "notification_email": form["notification_email"],
+            "redirect_url": form["redirect_url"],
+            "success_message": form["success_message"],
+            "fields": form["fields"] or [],
+            "created_at": form["created_at"],
+            "require_token": bool(form["require_token"]),
             "submission_count": total_submissions,
             "recent_submissions": recent_submissions,
             "last_submission_at": last_submission_at,
@@ -135,13 +191,14 @@ def create_form(form: FormCreate, db: Session = Depends(get_db), current_user: U
 @router.get("/{form_id}", response_model=FormWithMetadata)
 def get_form(form_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get a form by ID (must belong to current user) with submission counts and metadata."""
-    form = db.query(Form).filter(Form.id == form_id, Form.user_id == current_user.id).first()
-    if not form:
+    forms = _load_forms_schema_safe(db, current_user.id, form_id=form_id)
+    if not forms:
         raise HTTPException(status_code=404, detail="Form not found")
+    form = forms[0]
     
     # Get submission metadata
     seven_days_ago = now_utc() - timedelta(days=7)
-    form_id_str = str(form.id)
+    form_id_str = str(form["id"])
     
     # Get submission counts without loading the full Submission entity.
     total_submissions = db.query(func.count(Submission.id)).filter(Submission.form_id == form_id_str).scalar() or 0
@@ -157,19 +214,19 @@ def get_form(form_id: str, db: Session = Depends(get_db), current_user: User = D
     
     # Create enhanced form object
     form_dict = {
-        "id": form.id,
-        "user_id": form.user_id,
-        "name": form.name,
-        "description": form.description,
-        "webhook_url": form.webhook_url,
-        "webhook_headers": form.webhook_headers,
-        "webhook_secret": form.webhook_secret,
-        "notification_email": form.notification_email,
-        "redirect_url": form.redirect_url,
-        "success_message": form.success_message,
-        "fields": form.fields or [],
-        "created_at": form.created_at,
-        "require_token": bool(form.require_token),
+        "id": form["id"],
+        "user_id": form["user_id"],
+        "name": form["name"],
+        "description": form["description"],
+        "webhook_url": form["webhook_url"],
+        "webhook_headers": form["webhook_headers"],
+        "webhook_secret": form["webhook_secret"],
+        "notification_email": form["notification_email"],
+        "redirect_url": form["redirect_url"],
+        "success_message": form["success_message"],
+        "fields": form["fields"] or [],
+        "created_at": form["created_at"],
+        "require_token": bool(form["require_token"]),
         "submission_count": total_submissions,
         "recent_submissions": recent_submissions,
         "last_submission_at": last_submission_at,

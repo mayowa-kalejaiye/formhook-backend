@@ -100,6 +100,51 @@ def ensure_submission_metadata_columns() -> None:
 
     logging.warning("Applied missing submission metadata columns: %s", ", ".join(missing_columns))
 
+
+def ensure_forms_columns() -> None:
+    inspector = inspect(engine)
+    if not inspector.has_table("forms"):
+        return
+
+    existing_columns = {column["name"] for column in inspector.get_columns("forms")}
+    missing_columns = []
+    statements = []
+    json_type = "JSONB" if engine.dialect.name == "postgresql" else "TEXT"
+
+    optional_columns = {
+        "description": "VARCHAR",
+        "webhook_url": "VARCHAR",
+        "webhook_headers": json_type,
+        "webhook_secret": "VARCHAR",
+        "notification_email": "VARCHAR",
+        "redirect_url": "VARCHAR",
+        "success_message": "VARCHAR",
+        "fields": json_type,
+        "api_token": "VARCHAR",
+    }
+
+    for column_name, column_type in optional_columns.items():
+        if column_name not in existing_columns:
+            missing_columns.append(column_name)
+            statements.append(f"ALTER TABLE forms ADD COLUMN {column_name} {column_type}")
+
+    if "require_token" not in existing_columns:
+        missing_columns.append("require_token")
+        statements.append("ALTER TABLE forms ADD COLUMN require_token INTEGER NOT NULL DEFAULT 0")
+
+    if "track_location" not in existing_columns:
+        missing_columns.append("track_location")
+        statements.append("ALTER TABLE forms ADD COLUMN track_location INTEGER NOT NULL DEFAULT 0")
+
+    if not statements:
+        return
+
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+
+    logging.warning("Applied missing forms columns: %s", ", ".join(missing_columns))
+
 @app.exception_handler(RateLimitExceeded)
 async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
     # Include a Retry-After header to help clients back off; default to 60s
@@ -116,6 +161,11 @@ app.add_middleware(SlowAPIMiddleware)
 
 @app.on_event("startup")
 async def start_background_tasks() -> None:
+    try:
+        ensure_forms_columns()
+    except Exception as exc:
+        logging.exception("Failed to ensure forms columns: %s", exc)
+
     try:
         ensure_submission_metadata_columns()
     except Exception as exc:
