@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Response
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from sqlalchemy import func, inspect, select
-from pydantic import EmailStr, ValidationError
+from pydantic import AnyUrl, EmailStr, TypeAdapter, ValidationError
 from typing import List
 from datetime import timedelta
 from ..core.utils import now_utc
@@ -35,6 +35,9 @@ _OPTIONAL_FORM_DEFAULTS = {
     "fields": [],
     "require_token": 0,
 }
+
+_EMAIL_ADAPTER = TypeAdapter(EmailStr)
+_URL_ADAPTER = TypeAdapter(AnyUrl)
 
 
 def _get_existing_form_columns(db: Session) -> set[str]:
@@ -80,6 +83,30 @@ def _load_forms_schema_safe(db: Session, user_id: int, form_id: str | None = Non
 
     return normalized_forms
 
+
+def _safe_optional_email(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return str(_EMAIL_ADAPTER.validate_python(text))
+    except Exception:
+        return None
+
+
+def _safe_optional_url(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return str(_URL_ADAPTER.validate_python(text))
+    except Exception:
+        return None
+
 """
 Form management routes.
 """
@@ -122,11 +149,11 @@ def get_forms(db: Session = Depends(get_db), current_user: User = Depends(get_cu
             "user_id": form["user_id"],
             "name": form["name"],
             "description": form["description"],
-            "webhook_url": form["webhook_url"],
+            "webhook_url": _safe_optional_url(form["webhook_url"]),
             "webhook_headers": form["webhook_headers"],
             "webhook_secret": form["webhook_secret"],
-            "notification_email": form["notification_email"],
-            "redirect_url": form["redirect_url"],
+            "notification_email": _safe_optional_email(form["notification_email"]),
+            "redirect_url": _safe_optional_url(form["redirect_url"]),
             "success_message": form["success_message"],
             "fields": form["fields"] or [],
             "created_at": form["created_at"],
@@ -218,11 +245,11 @@ def get_form(form_id: str, db: Session = Depends(get_db), current_user: User = D
         "user_id": form["user_id"],
         "name": form["name"],
         "description": form["description"],
-        "webhook_url": form["webhook_url"],
+        "webhook_url": _safe_optional_url(form["webhook_url"]),
         "webhook_headers": form["webhook_headers"],
         "webhook_secret": form["webhook_secret"],
-        "notification_email": form["notification_email"],
-        "redirect_url": form["redirect_url"],
+        "notification_email": _safe_optional_email(form["notification_email"]),
+        "redirect_url": _safe_optional_url(form["redirect_url"]),
         "success_message": form["success_message"],
         "fields": form["fields"] or [],
         "created_at": form["created_at"],
