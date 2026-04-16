@@ -6,12 +6,23 @@ It includes app setup, middleware, and route registration.
 """
 import asyncio
 from contextlib import suppress
+import logging
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from .core.config import settings
-from .routes import auth, forms, submissions, dashboard, analytics, subscription, notifications, push_notifications
+from .routes import auth, forms, submissions, dashboard, analytics, subscription, notifications
+
+# Try to import push_notifications, but make it optional
+try:
+    from .routes import push_notifications
+    push_notifications_available = True
+except ImportError as e:
+    push_notifications = None
+    push_notifications_available = False
+    logging.warning(f"Push notifications disabled: {e}")
+
 from .tasks.trial_reminder_scheduler import run_trial_reminder_loop
 
 app = FastAPI(title="FormHook API", description="Plug-and-play backend for HTML forms.")
@@ -86,7 +97,12 @@ app.include_router(dashboard.router, tags=["Dashboard"])
 app.include_router(analytics.router, tags=["Forms"])
 app.include_router(subscription.router, prefix="/subscription", tags=["Subscription"])
 app.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
-app.include_router(push_notifications.router, prefix="/notifications/push", tags=["Push Notifications"])
+
+# Register push notifications only if available
+if push_notifications_available and push_notifications:
+    app.include_router(push_notifications.router, prefix="/notifications/push", tags=["Push Notifications"])
+else:
+    logging.warning("Push notifications router not registered due to missing dependencies")
 
 
 # Root endpoint
