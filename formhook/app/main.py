@@ -29,32 +29,39 @@ from .tasks.trial_reminder_scheduler import run_trial_reminder_loop
 
 app = FastAPI(title="FormHook API", description="Plug-and-play backend for HTML forms.")
 
-# CORS Middleware - Update to explicitly allow the frontend domain
-# Handle ALLOWED_ORIGINS carefully: if it's ["*"], allow all. Otherwise, merge with specific domains.
-cors_origins = [
-    settings.FRONTEND_URL,
-    "https://formhook-frontend.vercel.app",
-    "https://formhookapp.com",
-    "https://formhookapp.vercel.app",  # Add Vercel deployment domain
-    "https://api.formhookapp.com",
-    "http://localhost:3000"
-]
+# CORS middleware: keep explicit origins for credentialed requests and support Vercel preview domains.
+configured_origins = settings.ALLOWED_ORIGINS if isinstance(settings.ALLOWED_ORIGINS, list) else []
+if isinstance(settings.ALLOWED_ORIGINS, str):
+    configured_origins = [item.strip() for item in settings.ALLOWED_ORIGINS.split(",") if item.strip()]
 
-# If ALLOWED_ORIGINS is already ["*"], use that. Otherwise merge.
-if settings.ALLOWED_ORIGINS == ["*"]:
-    cors_origins = ["*"]
-else:
-    cors_origins = list(set(cors_origins + (settings.ALLOWED_ORIGINS if isinstance(settings.ALLOWED_ORIGINS, list) else [])))
+cors_origins = sorted({
+    origin
+    for origin in [
+        settings.FRONTEND_URL,
+        "https://formhook-frontend.vercel.app",
+        "https://formhookapp.com",
+        "https://www.formhookapp.com",
+        "https://formhookapp.vercel.app",
+        "https://api.formhookapp.com",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        *configured_origins,
+    ]
+    if isinstance(origin, str) and origin and origin != "*"
+})
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
+    allow_origin_regex=r"https://([a-zA-Z0-9-]+\.)?vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
     max_age=600,  # Cache preflight requests for 10 minutes
 )
+
+logging.info("CORS origins configured: %s", ", ".join(cors_origins))
 
 # Rate limiting middleware (SlowAPI)
 
