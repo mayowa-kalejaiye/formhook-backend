@@ -38,6 +38,7 @@ _OPTIONAL_FORM_DEFAULTS = {
 
 _EMAIL_ADAPTER = TypeAdapter(EmailStr)
 _URL_ADAPTER = TypeAdapter(AnyUrl)
+_ALLOWED_FIELD_TYPES = {"text", "email", "textarea", "checkbox", "select"}
 
 
 def _get_existing_form_columns(db: Session) -> set[str]:
@@ -107,6 +108,33 @@ def _safe_optional_url(value: object) -> str | None:
     except Exception:
         return None
 
+
+def _normalize_form_fields(value: object) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+
+    normalized: list[dict] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            continue
+
+        field_name = str(item.get("name") or f"field_{index + 1}")
+        field_label = str(item.get("label") or field_name)
+        raw_type = str(item.get("type") or "text").lower()
+        field_type = raw_type if raw_type in _ALLOWED_FIELD_TYPES else "text"
+        required = bool(item.get("required", False))
+
+        normalized.append(
+            {
+                "name": field_name,
+                "label": field_label,
+                "type": field_type,
+                "required": required,
+            }
+        )
+
+    return normalized
+
 """
 Form management routes.
 """
@@ -155,7 +183,7 @@ def get_forms(db: Session = Depends(get_db), current_user: User = Depends(get_cu
             "notification_email": _safe_optional_email(form["notification_email"]),
             "redirect_url": _safe_optional_url(form["redirect_url"]),
             "success_message": form["success_message"],
-            "fields": form["fields"] or [],
+            "fields": _normalize_form_fields(form["fields"]),
             "created_at": form["created_at"],
             "require_token": bool(form["require_token"]),
             "submission_count": total_submissions,
@@ -163,8 +191,11 @@ def get_forms(db: Session = Depends(get_db), current_user: User = Depends(get_cu
             "last_submission_at": last_submission_at,
             "status": "active"  # Default status, can be enhanced later
         }
-        
-        forms_with_metadata.append(FormWithMetadata(**form_dict))
+
+        try:
+            forms_with_metadata.append(FormWithMetadata(**form_dict))
+        except ValidationError:
+            logger.exception("Skipping malformed form row during list serialization: %s", form_id_str)
     
     # Cache the result for 60 seconds
     cache.set(cache_key, forms_with_metadata, ttl_seconds=60)
@@ -251,7 +282,7 @@ def get_form(form_id: str, db: Session = Depends(get_db), current_user: User = D
         "notification_email": _safe_optional_email(form["notification_email"]),
         "redirect_url": _safe_optional_url(form["redirect_url"]),
         "success_message": form["success_message"],
-        "fields": form["fields"] or [],
+        "fields": _normalize_form_fields(form["fields"]),
         "created_at": form["created_at"],
         "require_token": bool(form["require_token"]),
         "submission_count": total_submissions,
@@ -259,8 +290,12 @@ def get_form(form_id: str, db: Session = Depends(get_db), current_user: User = D
         "last_submission_at": last_submission_at,
         "status": "active"  # Default status, can be enhanced later
     }
-    
-    return FormWithMetadata(**form_dict)
+
+    try:
+        return FormWithMetadata(**form_dict)
+    except ValidationError:
+        logger.exception("Malformed form row during detail serialization: %s", form_id)
+        raise HTTPException(status_code=500, detail="Form data is malformed and could not be serialized.")
 
 @router.delete("/{form_id}")
 def delete_form(form_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
