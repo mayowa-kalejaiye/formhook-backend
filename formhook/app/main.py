@@ -38,7 +38,7 @@ cors_origins = sorted({
     origin
     for origin in [
         settings.FRONTEND_URL,
-        "https://formhook-frontend.vercel.app",
+        "https://formhookapp.vercel.app",
         "https://formhookapp.com",
         "https://www.formhookapp.com",
         "https://formhookapp.vercel.app",
