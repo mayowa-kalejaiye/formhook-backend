@@ -169,7 +169,7 @@ def get_forms(db: Session = Depends(get_db), current_user: User = Depends(get_cu
         # Get last submission timestamp without selecting all Submission columns.
         last_submission_at = db.query(Submission.created_at).filter(
             Submission.form_id == form_id_str
-        ).order_by(Submission.created_at.desc()).scalar()
+        ).order_by(Submission.created_at.desc()).limit(1).scalar()
         
         # Create enhanced form object
         form_dict = {
