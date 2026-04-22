@@ -1,7 +1,7 @@
 """
 Pydantic schemas for User entity.
 """
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, ConfigDict
 from datetime import datetime
 from typing import Optional
 
@@ -17,6 +17,4 @@ class UserOut(UserBase):
     is_verified: bool = False
     api_token_hash: Optional[str] = None
     token_created_at: Optional[datetime] = None
-
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)

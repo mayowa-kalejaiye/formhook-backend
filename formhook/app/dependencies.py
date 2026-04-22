@@ -99,3 +99,13 @@ def get_current_user(token: str = Depends(get_token_from_request), db: Session =
             detail=f"Error during authentication: {str(e)}",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+def get_admin_user(current_user: User = Depends(get_current_user)) -> User:
+    """Require an authenticated admin user."""
+    if not bool(getattr(current_user, "is_admin", False)):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+    return current_user

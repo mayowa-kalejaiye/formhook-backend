@@ -28,6 +28,7 @@ except ImportError as e:
 from .tasks.trial_reminder_scheduler import run_trial_reminder_loop
 
 app = FastAPI(title="FormHook API", description="Plug-and-play backend for HTML forms.")
+logger = logging.getLogger(__name__)
 
 # CORS middleware: keep explicit origins for credentialed requests and support Vercel preview domains.
 configured_origins = settings.ALLOWED_ORIGINS if isinstance(settings.ALLOWED_ORIGINS, list) else []
@@ -147,6 +148,8 @@ def ensure_forms_columns() -> None:
 
 @app.exception_handler(RateLimitExceeded)
 async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    client_ip = request.client.host if request.client else "unknown"
+    logger.warning("Rate limit exceeded method=%s path=%s ip=%s", request.method, request.url.path, client_ip)
     # Include a Retry-After header to help clients back off; default to 60s
     headers = {"Retry-After": "60"}
     return JSONResponse(

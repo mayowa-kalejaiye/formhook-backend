@@ -4,8 +4,10 @@ Dashboard summary endpoint for FormHook.
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func, inspect, select
-from ..dependencies import get_db, get_current_user
+from ..dependencies import get_db, get_current_user, get_admin_user
 from ..models import form as form_model, submission as submission_model, webhook_delivery as webhook_model
+from ..models.auth_security_counter import AuthSecurityCounter
+from ..models.user import User
 from ..schemas.submission import SubmissionOut
 from ..services.cache import cache
 from datetime import timedelta
@@ -119,3 +121,64 @@ def dashboard_summary(
     cache.set(cache_key, summary, ttl_seconds=30)
     
     return summary
+
+
+@router.get("/dashboard/security-summary", tags=["Dashboard"])
+def dashboard_security_summary(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_admin_user),
+    limit: int = 20,
+):
+    """Admin-only security summary based on persisted auth counters."""
+    safe_limit = max(1, min(limit, 100))
+
+    total_failed_attempts = db.query(func.coalesce(func.sum(AuthSecurityCounter.attempts), 0)).scalar() or 0
+    total_unique_keys = db.query(func.count(AuthSecurityCounter.id)).scalar() or 0
+
+    endpoint_breakdown_rows = (
+        db.query(
+            AuthSecurityCounter.endpoint,
+            func.coalesce(func.sum(AuthSecurityCounter.attempts), 0).label("attempts"),
+        )
+        .group_by(AuthSecurityCounter.endpoint)
+        .order_by(func.sum(AuthSecurityCounter.attempts).desc())
+        .all()
+    )
+
+    top_signals_rows = (
+        db.query(
+            AuthSecurityCounter.endpoint,
+            AuthSecurityCounter.email,
+            AuthSecurityCounter.ip_address,
+            AuthSecurityCounter.attempts,
+            AuthSecurityCounter.updated_at,
+        )
+        .order_by(AuthSecurityCounter.attempts.desc(), AuthSecurityCounter.updated_at.desc())
+        .limit(safe_limit)
+        .all()
+    )
+
+    endpoint_breakdown = [
+        {"endpoint": row.endpoint, "attempts": int(row.attempts or 0)}
+        for row in endpoint_breakdown_rows
+    ]
+
+    top_signals = [
+        {
+            "endpoint": row.endpoint,
+            "email": row.email,
+            "ip_address": row.ip_address,
+            "attempts": int(row.attempts or 0),
+            "updated_at": row.updated_at,
+        }
+        for row in top_signals_rows
+    ]
+
+    return {
+        "totals": {
+            "failed_auth_attempts": int(total_failed_attempts),
+            "unique_signals": int(total_unique_keys),
+        },
+        "endpoint_breakdown": endpoint_breakdown,
+        "top_signals": top_signals,
+    }

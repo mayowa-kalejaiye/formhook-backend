@@ -30,3 +30,6 @@ jobs:
 
       - name: Run auth rate-limit regression
         run: python test_auth_rate_limits.py
+
+      - name: Run security summary access regression
+        run: python test_security_summary_access.py

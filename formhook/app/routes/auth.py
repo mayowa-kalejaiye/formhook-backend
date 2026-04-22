@@ -1,26 +1,80 @@
 """
 Auth routes: signup, login, and email verification.
 """
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Form, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from datetime import timedelta
-from ..schemas.user import UserCreate, UserOut
+from ..schemas.user import UserOut
 from ..models.user import User
 from ..core.database import SessionLocal
 from ..core.security import hash_password, verify_password, create_access_token
+from ..models.auth_security_counter import AuthSecurityCounter
 from ..schemas.verification import EmailVerificationRequest, EmailVerificationResponse, TokenVerification
 from ..services.verification import verify_email, send_verification_email
 from ..services.password_reset import send_password_reset_email, reset_password
 from ..extensions import limiter
 from pydantic import EmailStr, BaseModel
-import os
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import JSONResponse
 from ..core.config import settings
-from ..core.utils import now_utc
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+def log_failed_auth_attempt(db: Session, request: Request, endpoint: str, email: str) -> None:
+    client_ip = request.client.host if request.client else "unknown"
+    attempt_count = None
+
+    try:
+        counter = db.query(AuthSecurityCounter).filter(
+            AuthSecurityCounter.endpoint == endpoint,
+            AuthSecurityCounter.email == email,
+            AuthSecurityCounter.ip_address == client_ip,
+        ).first()
+
+        if counter is None:
+            counter = AuthSecurityCounter(
+                endpoint=endpoint,
+                email=email,
+                ip_address=client_ip,
+                attempts=1,
+            )
+            db.add(counter)
+            attempt_count = 1
+        else:
+            counter.attempts = int(counter.attempts or 0) + 1
+            attempt_count = counter.attempts
+
+        db.commit()
+    except Exception:
+        # Fail open for auth flow if telemetry storage is unavailable.
+        db.rollback()
+        logger.warning(
+            "Failed to persist auth security counter endpoint=%s email=%s ip=%s",
+            endpoint,
+            email,
+            client_ip,
+        )
+
+    # Keep warnings meaningful by surfacing notable thresholds.
+    if attempt_count is None or attempt_count in {1, 5, 10} or attempt_count % 25 == 0:
+        logger.warning(
+            "Failed auth attempt endpoint=%s email=%s ip=%s attempts=%s",
+            endpoint,
+            email,
+            client_ip,
+            attempt_count,
+        )
+    else:
+        logger.debug(
+            "Failed auth attempt endpoint=%s email=%s ip=%s attempts=%s",
+            endpoint,
+            email,
+            client_ip,
+            attempt_count,
+        )
 
 
 def normalize_email(value: str) -> str:
@@ -52,19 +106,18 @@ async def signup(
 ):
     """Register a new user and send verification email. Accepts both form data and JSON."""
     try:
-        print(f"Signup request content type: {request.headers.get('content-type', 'unknown')}")
+        logger.debug("Signup request received content_type=%s", request.headers.get("content-type", "unknown"))
         
         # Try to get data from form first
         if email is not None and password is not None:
             # Form data was provided
             user_email = email
             user_password = password
-            print("Using form data for signup")
+            logger.debug("Signup using form payload")
         else:
             # Try to parse JSON body
             try:
                 body = await request.json()
-                print(f"Signup request JSON body: {body}")
                 user_email = body.get("email")
                 user_password = body.get("password")
                 
@@ -73,9 +126,11 @@ async def signup(
                         status_code=422,
                         detail="Missing required fields: email and password"
                     )
-            except Exception as e:
+            except HTTPException:
+                raise
+            except Exception:
                 # If we can't parse JSON and don't have form data, raise error
-                print(f"Failed to parse signup request body: {str(e)}")
+                logger.warning("Signup request payload parsing failed")
                 raise HTTPException(
                     status_code=422,
                     detail="Invalid request format. Please provide email and password."
@@ -113,24 +168,16 @@ async def signup(
                 send_verification_email(db, db_user)
             except Exception as e:
                 # Log the error but don't fail the signup
-                print(f"Error sending verification email: {e}")
+                logger.warning("Error sending verification email for user_id=%s: %s", db_user.id, e)
         
         return db_user
     except HTTPException:
         raise
     except Exception as e:
         # Log any other errors
-        print(f"Signup error: {e}")
+        logger.exception("Signup error")
         db.rollback()
         raise HTTPException(status_code=500, detail="Registration failed. Please try again later.")
-    except HTTPException as e:
-        # Re-raise HTTP exceptions
-        raise
-    except Exception as e:
-        # Log any other errors
-        print(f"Signup error: {e}")
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Internal server error during signup: {str(e)}")
 
 
 # Pydantic model for login request
@@ -148,19 +195,18 @@ async def login(
 ):
     """Authenticate user and return JWT. Accepts both form data and JSON."""
     try:
-        print(f"Request content type: {request.headers.get('content-type', 'unknown')}")
+        logger.debug("Login request received content_type=%s", request.headers.get("content-type", "unknown"))
         
         # Try to get data from form first
         if email is not None and password is not None:
             # Form data was provided
             user_email = email
             user_password = password
-            print("Using form data for login")
+            logger.debug("Login using form payload")
         else:
             # Try to parse JSON body
             try:
                 body = await request.json()
-                print(f"Request JSON body: {body}")
                 user_email = body.get("email")
                 user_password = body.get("password")
                 
@@ -169,9 +215,11 @@ async def login(
                         status_code=422,
                         detail="Missing required fields: email and password"
                     )
-            except Exception as e:
+            except HTTPException:
+                raise
+            except Exception:
                 # If we can't parse JSON and don't have form data, raise error
-                print(f"Failed to parse request body: {str(e)}")
+                logger.warning("Login request payload parsing failed")
                 raise HTTPException(
                     status_code=422,
                     detail="Invalid request format. Please provide email and password."
@@ -185,11 +233,10 @@ async def login(
                 detail="Missing required fields: email and password"
             )
 
-        print(f"Login attempt for email: {user_email}")
-        
         # Find the user
         user = db.query(User).filter(func.lower(User.email) == user_email).first()
         if not user or not verify_password(user_password, user.password_hash):
+            log_failed_auth_attempt(db, request, "/auth/login", user_email)
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
         
         if settings.REQUIRE_EMAIL_VERIFICATION and not user.is_verified:
@@ -215,14 +262,9 @@ async def login(
         return resp
     except HTTPException:
         raise
-    except Exception as e:
-        print(f"Login error: {str(e)}")
+    except Exception:
+        logger.exception("Login error")
         raise HTTPException(status_code=500, detail=f"Login failed. Please try again later.")
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Login error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Login error: {str(e)}")
 
 # Email login model
 class EmailLoginRequest(BaseModel):
@@ -246,6 +288,7 @@ def email_login(request: Request, payload: EmailLoginRequest, db: Session = Depe
         normalized_email = normalize_email(payload.email)
         user = db.query(User).filter(func.lower(User.email) == normalized_email).first()
         if not user or not verify_password(payload.password, user.password_hash):
+            log_failed_auth_attempt(db, request, "/auth/email-login", normalized_email)
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
         
         if settings.REQUIRE_EMAIL_VERIFICATION and not user.is_verified:
@@ -269,8 +312,8 @@ def email_login(request: Request, payload: EmailLoginRequest, db: Session = Depe
         return resp
     except HTTPException:
         raise
-    except Exception as e:
-        print(f"Email login error: {str(e)}")
+    except Exception:
+        logger.exception("Email login error")
         raise HTTPException(status_code=500, detail="Login failed. Please try again later.")
 
 @router.post("/verify-email", response_model=EmailVerificationResponse)
@@ -284,7 +327,7 @@ def verify_user_email(token_data: TokenVerification, db: Session = Depends(get_d
         else:
             return {"success": False, "message": "Invalid or expired verification link"}
     except Exception as e:
-        print(f"Email verification error: {str(e)}")
+        logger.exception("Email verification error")
         raise HTTPException(status_code=500, detail="Email verification failed. Please try again later.")
 
 @router.post("/request-verification", response_model=EmailVerificationResponse)
@@ -313,8 +356,8 @@ def request_email_verification(
             "success": True, 
             "message": "If your email exists in our system, you will receive a verification link"
         }
-    except Exception as e:
-        print(f"Request verification error: {str(e)}")
+    except Exception:
+        logger.warning("Request verification failed due to internal error")
         # Don't reveal internal errors
         return {
             "success": True, 
@@ -341,8 +384,8 @@ def request_password_reset(
             "success": True,
             "message": "If your email exists in our system, you will receive a password reset link"
         }
-    except Exception as e:
-        print(f"Password reset request error: {str(e)}")
+    except Exception:
+        logger.warning("Password reset request failed due to internal error")
         return {
             "success": True,
             "message": "If your email exists in our system, you will receive a password reset link"
@@ -360,8 +403,8 @@ def confirm_password_reset(req: PasswordResetConfirm, db: Session = Depends(get_
         return {"success": True, "message": "Password updated successfully"}
     except HTTPException:
         raise
-    except Exception as e:
-        print(f"Password reset error: {str(e)}")
+    except Exception:
+        logger.exception("Password reset confirmation error")
         raise HTTPException(status_code=500, detail="Password reset failed. Please try again later.")
 
 
@@ -374,8 +417,8 @@ def logout(response: Response):
         # Ensure cookie deletion by instructing client to remove it
         resp.delete_cookie("access_token", path="/")
         return resp
-    except Exception as e:
-        print(f"Logout error: {e}")
+    except Exception:
+        logger.exception("Logout error")
         raise HTTPException(status_code=500, detail="Logout failed. Please try again.")
 
 # Debug endpoint - REMOVE IN PRODUCTION
@@ -404,6 +447,7 @@ async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequ
         normalized_email = normalize_email(form_data.username)
         user = db.query(User).filter(func.lower(User.email) == normalized_email).first()
         if not user or not verify_password(form_data.password, user.password_hash):
+            log_failed_auth_attempt(db, request, "/auth/token", normalized_email)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password",
@@ -432,8 +476,8 @@ async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequ
         return resp
     except HTTPException:
         raise
-    except Exception as e:
-        print(f"OAuth token error: {str(e)}")
+    except Exception:
+        logger.exception("OAuth token error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Authentication failed. Please try again later.",

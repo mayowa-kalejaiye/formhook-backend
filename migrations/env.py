@@ -26,7 +26,7 @@ import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from formhook.app.core.database import Base
-from formhook.app.models import user, form, submission, verification, password_reset  # noqa: F401
+from formhook.app.models import user, form, submission, verification, password_reset, auth_security_counter  # noqa: F401
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
