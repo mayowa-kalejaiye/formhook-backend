@@ -5,6 +5,8 @@ Automated regression test for authentication rate limits.
 This script verifies that:
 1. /auth/reset-password-request enforces 3/minute (4th request -> 429).
 2. /auth/login enforces 10/minute (11th request -> 429).
+3. /auth/signup enforces 5/minute (6th request -> 429).
+4. /auth/token enforces 10/minute (11th request -> 429).
 """
 
 import os
@@ -74,7 +76,7 @@ def run_test() -> None:
         reset_statuses = []
 
         for _ in range(4):
-            response = client.post(reset_endpoint, json=reset_payload)
+            response = client.post(f"{reset_endpoint}?form_id=rl-reset", json=reset_payload)
             reset_statuses.append(response.status_code)
 
         assert reset_statuses[:3] == [200, 200, 200], (
@@ -89,7 +91,7 @@ def run_test() -> None:
         login_statuses = []
 
         for _ in range(11):
-            response = client.post(login_endpoint, json=login_payload)
+            response = client.post(f"{login_endpoint}?form_id=rl-login", json=login_payload)
             login_statuses.append(response.status_code)
 
         assert login_statuses[:10] == [401] * 10, (
@@ -99,8 +101,45 @@ def run_test() -> None:
             f"Expected 11th login attempt to be rate limited, got {login_statuses[10]}"
         )
 
+        signup_endpoint = "/auth/signup"
+        signup_statuses = []
+
+        for i in range(6):
+            signup_payload = {
+                "email": f"rate-limit-signup-{i}@example.com",
+                "password": "StrongPassword123!",
+            }
+            response = client.post(f"{signup_endpoint}?form_id=rl-signup", json=signup_payload)
+            signup_statuses.append(response.status_code)
+
+        assert signup_statuses[:5] == [200] * 5, (
+            f"Expected first 5 signup requests to pass, got {signup_statuses[:5]}"
+        )
+        assert signup_statuses[5] == 429, (
+            f"Expected 6th signup request to be rate limited, got {signup_statuses[5]}"
+        )
+
+        token_endpoint = "/auth/token"
+        token_statuses = []
+
+        for _ in range(11):
+            response = client.post(
+                f"{token_endpoint}?form_id=rl-token",
+                data={"username": "nonexistent@example.com", "password": "WrongPassword123!"},
+            )
+            token_statuses.append(response.status_code)
+
+        assert token_statuses[:10] == [401] * 10, (
+            f"Expected first 10 token requests to return 401, got {token_statuses[:10]}"
+        )
+        assert token_statuses[10] == 429, (
+            f"Expected 11th token request to be rate limited, got {token_statuses[10]}"
+        )
+
         print("PASS: /auth/reset-password-request enforces 3/minute (4th -> 429).")
         print("PASS: /auth/login enforces 10/minute (11th -> 429).")
+        print("PASS: /auth/signup enforces 5/minute (6th -> 429).")
+        print("PASS: /auth/token enforces 10/minute (11th -> 429).")
     finally:
         Base.metadata.drop_all(bind=engine, tables=[User.__table__])
         engine.dispose()
