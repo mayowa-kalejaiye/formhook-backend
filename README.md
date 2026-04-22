@@ -111,6 +111,45 @@ A plug-and-play backend service for HTML forms. Accept submissions from static s
 }
 ```
 
+#### Request Password Reset
+`POST /auth/reset-password-request`
+
+**Payload:**
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "If your email exists in our system, you will receive a password reset link"
+}
+```
+
+#### Confirm Password Reset
+`POST /auth/reset-password`
+
+**Payload:**
+```json
+{
+  "token": "reset-token-from-email",
+  "password": "newpassword"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Password updated successfully"
+}
+```
+
+**Note:** Password resets invalidate previously issued JWT sessions.
+
 ---
 
 ### Forms

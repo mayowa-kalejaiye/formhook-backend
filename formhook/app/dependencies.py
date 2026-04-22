@@ -73,6 +73,15 @@ def get_current_user(token: str = Depends(get_token_from_request), db: Session =
                 detail="User not found",
                 headers={"WWW-Authenticate": "Bearer"},
             )
+
+        token_version = int(payload.get("token_version", 0) or 0)
+        current_version = int(getattr(user, "token_version", 0) or 0)
+        if token_version != current_version:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session has been revoked. Please sign in again.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         
         if settings.REQUIRE_EMAIL_VERIFICATION and not user.is_verified:
             raise HTTPException(

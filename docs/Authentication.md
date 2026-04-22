@@ -39,9 +39,55 @@ Authenticate a user and return a JWT access token.
 ```json
 {
   "access_token": "<JWT_TOKEN>",
-  "token_type": "bearer"
+  "token_type": "bearer",
+  "user": {
+    "id": 1,
+    "email": "user@example.com",
+    "is_verified": true
+  }
 }
 ```
+
+## POST `/auth/reset-password-request`
+
+Request a password reset link.
+
+### Request Body (JSON)
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+### Response (200 OK)
+```json
+{
+  "success": true,
+  "message": "If your email exists in our system, you will receive a password reset link"
+}
+```
+
+## POST `/auth/reset-password`
+
+Reset a password using a token from the email link.
+
+### Request Body (JSON)
+```json
+{
+  "token": "reset-token-from-email",
+  "password": "newpassword"
+}
+```
+
+### Response (200 OK)
+```json
+{
+  "success": true,
+  "message": "Password updated successfully"
+}
+```
+
+**Note:** Changing the password revokes previously issued JWT sessions.
 
 ---
 

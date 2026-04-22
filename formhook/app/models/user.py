@@ -14,6 +14,7 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     api_token_hash = Column(String, nullable=True)
     token_created_at = Column(DateTime(timezone=True), nullable=True)
+    token_version = Column(Integer, default=0, nullable=False)
     is_verified = Column(Boolean, default=False)
     is_admin = Column(Boolean, default=False, nullable=False)
     
@@ -40,6 +41,7 @@ class User(Base):
     
     # Relationships
     email_verifications = relationship("EmailVerification", back_populates="user")
+    password_resets = relationship("PasswordReset", back_populates="user")
     forms = relationship("Form", back_populates="user")
     push_subscriptions = relationship("PushSubscription", back_populates="user", cascade="all, delete-orphan")
     

@@ -11,6 +11,8 @@ from ..core.database import SessionLocal
 from ..core.security import hash_password, verify_password, create_access_token
 from ..schemas.verification import EmailVerificationRequest, EmailVerificationResponse, TokenVerification
 from ..services.verification import verify_email, send_verification_email
+from ..services.password_reset import send_password_reset_email, reset_password
+from ..extensions import limiter
 from pydantic import EmailStr, BaseModel
 import os
 from fastapi.security import OAuth2PasswordRequestForm
@@ -24,6 +26,14 @@ router = APIRouter()
 def normalize_email(value: str) -> str:
     return value.strip().lower()
 
+
+def build_auth_token_payload(user: User) -> dict:
+    return {
+        "sub": str(user.id),
+        "email": user.email,
+        "token_version": int(getattr(user, "token_version", 0) or 0),
+    }
+
 # Dependency to get DB session
 def get_db():
     db = SessionLocal()
@@ -33,6 +43,7 @@ def get_db():
         db.close()
 
 @router.post("/signup", response_model=UserOut)
+@limiter.limit("5/minute")
 async def signup(
     request: Request,
     email: str = Form(None),
@@ -128,6 +139,7 @@ class LoginRequest(BaseModel):
     password: str
 
 @router.post("/login")
+@limiter.limit("10/minute")
 async def login(
     request: Request,
     email: str = Form(None), 
@@ -186,7 +198,7 @@ async def login(
                 detail="Email not verified. Please check your inbox for a verification link."
             )
         
-        token = create_access_token({"sub": str(user.id), "email": user.email})
+        token = create_access_token(build_auth_token_payload(user))
         # Prepare user payload
         user_data = {"id": user.id, "email": user.email, "is_verified": user.is_verified}
         # Set HttpOnly cookie for session-based auth (keeps compatibility by returning token in body)
@@ -217,13 +229,23 @@ class EmailLoginRequest(BaseModel):
     email: str  # Changed from EmailStr to str for more flexibility
     password: str
 
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirm(BaseModel):
+    token: str
+    password: str
+
 @router.post("/email-login")
-def email_login(request: EmailLoginRequest, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def email_login(request: Request, payload: EmailLoginRequest, db: Session = Depends(get_db)):
     """Alternative login endpoint accepting 'email' instead of 'username'."""
     try:
-        normalized_email = normalize_email(request.email)
+        normalized_email = normalize_email(payload.email)
         user = db.query(User).filter(func.lower(User.email) == normalized_email).first()
-        if not user or not verify_password(request.password, user.password_hash):
+        if not user or not verify_password(payload.password, user.password_hash):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
         
         if settings.REQUIRE_EMAIL_VERIFICATION and not user.is_verified:
@@ -232,7 +254,7 @@ def email_login(request: EmailLoginRequest, db: Session = Depends(get_db)):
                 detail="Email not verified. Please check your inbox for a verification link."
             )
         
-        token = create_access_token({"sub": str(user.id), "email": user.email})
+        token = create_access_token(build_auth_token_payload(user))
         user_data = {"id": user.id, "email": user.email, "is_verified": user.is_verified}
         secure_cookie = settings.FRONTEND_URL.startswith("https")
         resp = JSONResponse({"access_token": token, "token_type": "bearer", "user": user_data})
@@ -266,7 +288,9 @@ def verify_user_email(token_data: TokenVerification, db: Session = Depends(get_d
         raise HTTPException(status_code=500, detail="Email verification failed. Please try again later.")
 
 @router.post("/request-verification", response_model=EmailVerificationResponse)
+@limiter.limit("3/minute")
 def request_email_verification(
+    request: Request,
     req: EmailVerificationRequest, 
     db: Session = Depends(get_db)
 ):
@@ -296,6 +320,49 @@ def request_email_verification(
             "success": True, 
             "message": "If your email exists in our system, you will receive a verification link"
         }
+
+
+@router.post("/reset-password-request", response_model=EmailVerificationResponse)
+@limiter.limit("3/minute")
+def request_password_reset(
+    request: Request,
+    req: PasswordResetRequest, 
+    db: Session = Depends(get_db)
+):
+    """Request a password reset link without revealing whether the email exists."""
+    try:
+        normalized_email = normalize_email(req.email)
+        user = db.query(User).filter(func.lower(User.email) == normalized_email).first()
+
+        if user:
+            send_password_reset_email(db, user)
+
+        return {
+            "success": True,
+            "message": "If your email exists in our system, you will receive a password reset link"
+        }
+    except Exception as e:
+        print(f"Password reset request error: {str(e)}")
+        return {
+            "success": True,
+            "message": "If your email exists in our system, you will receive a password reset link"
+        }
+
+
+@router.post("/reset-password")
+def confirm_password_reset(req: PasswordResetConfirm, db: Session = Depends(get_db)):
+    """Reset a user's password using a valid token."""
+    try:
+        ok = reset_password(db, req.token, req.password)
+        if not ok:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired reset link")
+
+        return {"success": True, "message": "Password updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Password reset error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Password reset failed. Please try again later.")
 
 
 @router.post("/logout")
@@ -330,7 +397,8 @@ def logout(response: Response):
 
 # Standard OAuth2 login with form data
 @router.post("/token")
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     """Standard OAuth2 token endpoint."""
     try:
         normalized_email = normalize_email(form_data.username)
@@ -349,7 +417,7 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        token = create_access_token({"sub": str(user.id), "email": user.email})
+        token = create_access_token(build_auth_token_payload(user))
         user_data = {"id": user.id, "email": user.email, "is_verified": user.is_verified}
         secure_cookie = settings.FRONTEND_URL.startswith("https")
         resp = JSONResponse({"access_token": token, "token_type": "bearer", "user": user_data})

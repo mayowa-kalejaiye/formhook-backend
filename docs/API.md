@@ -59,6 +59,46 @@ Errors:
 - 401: Invalid credentials
 - 422: Validation error
 
+### POST `/auth/reset-password-request`
+Request a password reset email.
+
+Request body:
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+Response:
+```json
+{
+  "success": true,
+  "message": "If your email exists in our system, you will receive a password reset link"
+}
+```
+
+### POST `/auth/reset-password`
+Reset a password using the token from the email link.
+
+Request body:
+```json
+{
+  "token": "reset-token-from-email",
+  "password": "newpassword"
+}
+```
+
+Response:
+```json
+{
+  "success": true,
+  "message": "Password updated successfully"
+}
+```
+
+Notes:
+- Password resets invalidate previously issued JWT sessions.
+
 ## Forms
 
 All endpoints in this section require:
