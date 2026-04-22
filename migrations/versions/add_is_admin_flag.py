@@ -1,7 +1,7 @@
 """Add is_admin flag to users
 
 Revision ID: add_is_admin_flag
-Revises: add_trial_metadata
+Revises: 20260422_add_auth_security_counters
 Create Date: 2025-12-07 00:00:00.000000
 
 """
@@ -13,7 +13,7 @@ from sqlalchemy import inspect
 
 # revision identifiers, used by Alembic.
 revision: str = 'add_is_admin_flag'
-down_revision: Union[str, Sequence[str], None] = 'add_trial_metadata'
+down_revision: Union[str, Sequence[str], None] = '20260422_add_auth_security_counters'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
