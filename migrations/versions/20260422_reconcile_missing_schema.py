@@ -26,6 +26,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # Widen the alembic_version tracking column so that revision IDs longer
+    # than the legacy VARCHAR(32) limit can be recorded without error.
+    op.execute("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE TEXT")
+
     bind = op.get_bind()
     inspector = inspect(bind)
     existing_tables = set(inspector.get_table_names())
