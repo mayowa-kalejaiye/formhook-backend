@@ -99,11 +99,15 @@ def run_test() -> None:
             )
             db.commit()
         finally:
+            # We must not close the session before make_token() access user attributes.
+            # However, for consistency we'll ensure user objects are detached but with loaded attributes
+            # or simply generate the tokens while the session is still active.
+            non_admin_token = make_token(non_admin_user)
+            admin_token = make_token(admin_user)
             db.close()
 
         client = TestClient(app)
 
-        non_admin_token = make_token(non_admin_user)
         non_admin_response = client.get(
             "/dashboard/security-summary",
             headers={"Authorization": f"Bearer {non_admin_token}"},
